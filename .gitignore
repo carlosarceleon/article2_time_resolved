@@ -1,0 +1,10 @@
+.ropeproject
+*.pyc
+*.csv
+SpectrumResults
+WallNormalData
+Results
+parking
+script_parking
+*.png
+*.hdf5
