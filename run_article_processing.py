@@ -497,7 +497,7 @@ def extract_wall_normal_lines_one_by_one():
             plot          = False,
             overwrite     = False,
             x_locs        = [
-                -0.10 , -0.05 , 0.0  , 0.10 ,
+                -0.10 , -0.05, -0.025 , 0.025, 0.05  , 0.10 ,
                 0.20  , 0.30  ,
                 0.40  , 0.5   , 0.60 ,
                 0.70  , 0.80  ,

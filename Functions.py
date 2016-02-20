@@ -745,7 +745,6 @@ def read_tecplot_file(tecplot_file):
     """
     import pandas as pd 
     import re
-    from numpy import nan
 
     # Get available variables
     f = open(tecplot_file,'ro')
@@ -754,16 +753,13 @@ def read_tecplot_file(tecplot_file):
     for line in f:
         string = re.findall("^VARIABLES[ _A-Za-z0-9,\"=]+",line)
         if string:
-            variables = [v.replace(' ','_').replace("\"","") for v in string[0].replace("VARIABLES = ",'').split(", ")]
+            variables = [v.replace(' ','_').replace("\"","") \
+                         for v in string[0].replace("VARIABLES = ",'')\
+                         .split(", ")]
             variables = [v for v in variables if len(v)]
             var_flag = True
         string = re.findall("^TITLE = [ -_A-Za-z0-9,\"=]+",line)
         if string:
-        #    if len(re.findall("\"B[0-9]+\"",string)):
-        #        # This file doesn't have the device name in the title string, should be in the folder name then
-        #        device,phi,alpha,pressure = get_variables_in_tecplot(os.path.split(tecplot_file)[-1])
-        #    else:
-        #        device,phi,alpha,pressure = get_case_details_from_filename(string[0].replace("TITLE = ",'').replace("\"",""))
             dev_flag = True
         if var_flag and dev_flag:
             break
@@ -771,7 +767,8 @@ def read_tecplot_file(tecplot_file):
 
     for v in range(len(variables)):
         if variables[v] in DaVis_naming_convention_dictionary.keys():
-            variables[v] = DaVis_naming_convention_dictionary[variables[v]].replace(" ","_")
+            variables[v] = DaVis_naming_convention_dictionary[variables[v]]\
+                    .replace(" ","_")
 
     # Correct for error in the "Flow angle" variable name in the tecplot files
     variables = [v.replace("Flow_angle","") for v in variables]
@@ -785,9 +782,5 @@ def read_tecplot_file(tecplot_file):
             sep       = '[ \t]+',
             index_col = False
             )
-
-    #data = data.replace(nan,0)
-    #data = get_vorticity(data)
-
 
     return data

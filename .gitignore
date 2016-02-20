@@ -8,3 +8,5 @@ parking
 script_parking
 *.png
 *.hdf5
+*.p
+ReservedData

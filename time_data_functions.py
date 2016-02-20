@@ -19,17 +19,16 @@ def build_data_hdf5(root,case_folders,target,overwrite=False):
       
    acquisition_frequency = 1./5000.
 
+   # Find number of total files I need to process ##############################
    print "   Going to process files from the folders:"
    n_files = 0
    for cf in [case_folders]:
       n_files += len([f for f in os.listdir(os.path.join(root,cf)) \
                       if f.endswith('.dat')])
       print "      {0}".format(cf)
+   #############################################################################
 
-   # Find number of total files I need to process
-
-
-   # Check if the file already exists
+   # Check if the file already exists, otherwise start writing #################
    if os.path.isfile(target):
       if os.path.getsize(target) < 10000 or overwrite:
          os.remove(target)
@@ -37,6 +36,13 @@ def build_data_hdf5(root,case_folders,target,overwrite=False):
          print "    File exists, not overwriting\n"
          return 1
    print "  Saving to {0}".format(target)
+
+   try:
+       h5 = h5py.File(target+'.hdf5','w')
+   except:
+       return 0
+   #############################################################################
+
    progress = ProgressBar(
         widgets=[
             Bar(),' ',
@@ -46,40 +52,41 @@ def build_data_hdf5(root,case_folders,target,overwrite=False):
         maxval=n_files
         ).start()
 
-   # Open the HDF5 file
-   try:
-       h5 = h5py.File(target+'.hdf5','w')
-   except:
-       return 0
-
-   # Run through all folders
+   # Run through all folders ###################################################
    cnt_files = 0
    for cf in [case_folders]:
 
-      # Run through all time step datafiles
-      files = [f for f in os.listdir(os.path.join(root,cf)) if os.path.splitext(f)[1] == '.dat']
+      # Run through all time step datafiles that were found in the folder ######
+      files = [f for f in os.listdir(os.path.join(root,cf)) \
+               if os.path.splitext(f)[1] == '.dat']
+
       for f,t in zip(files,range(len(files))):
-         # If it's the first time step, initialize the hdf5 group
+
+         # If it's the first time step, initialize the hdf5 group ##############
          df = read_tecplot_file(os.path.join(root,cf,f))
          if f == files[0]:
             grp = h5.create_group(cf)
 
             # Coordinate points (number of)
             planar_data=False
+
             grp.attrs['nx'] = df.x.size
             grp.attrs['ny'] = df.y.size
+
             try:
                 grp.attrs['nz'] = df.z.size
             except AttributeError:
                 planar_data = True
             
             # Device, phi, alpha
-            device,phi,alpha,U,loc,reprocessed = get_case_details_from_filename(cf)
+            device,phi,alpha,U,loc,reprocessed = \
+                    get_case_details_from_filename(cf)
             alpha = float(alpha)
             phi = float(phi)
 
             # Mask
-            mask_name = "{0}_phi{1:d}_alpha{2:d}_U{3}_loc{4}.dat".format(device,int(phi),int(alpha),U,loc)
+            mask_name = "{0}_phi{1:d}_alpha{2:d}_U{3}_loc{4}.dat"\
+                    .format(device,int(phi),int(alpha),U,loc)
             mask = masks.Masks[mask_name]
 
             # Rotation angle so that true Vy is vertical (and streamwise)
@@ -87,7 +94,9 @@ def build_data_hdf5(root,case_folders,target,overwrite=False):
             else: sign = 1
             if alpha == -6:
                 alpha = -12
-            angle = atan( (mask[2][0] - mask[1][0]) / (mask[2][1] - mask[1][1]))
+            angle = atan( 
+                (mask[2][0] - mask[1][0]) / (mask[2][1] - mask[1][1])
+            )
             grp.attrs['mask_name']    = mask_name
             grp.attrs['device']       = device
             grp.attrs['phi']          = phi
@@ -96,10 +105,15 @@ def build_data_hdf5(root,case_folders,target,overwrite=False):
             grp.attrs['loc']          = loc
             grp.create_dataset('mask', data=mask)
             grp.attrs['angle']        = angle
-            grp.attrs['flow_angle']   = angle + sign * deg2rad(abs(phi)+abs(alpha))
+            grp.attrs['flow_angle']   = angle + sign \
+                    * deg2rad(abs(phi)+abs(alpha))
             # Coordinate points 
-            grp.create_dataset('x', data=df.x.values-masks.Masks[mask_name][1][0],dtype='float')
-            grp.create_dataset('y', data=df.y.values-masks.Masks[mask_name][1][1],dtype='float')
+            grp.create_dataset('x', 
+                               data = df.x.values-masks.Masks[mask_name][1][0],
+                               dtype ='float')
+            grp.create_dataset('y', 
+                               data = df.y.values-masks.Masks[mask_name][1][1],
+                               dtype ='float')
       
          # Create a new group to store the datasets for this time
          grp = h5.create_group("{0}/{1}".format(cf,t))
@@ -215,7 +229,11 @@ def rotate(x,y,angle):
 
     return x_rot,y_rot
 
-def return_rotated_hdf5_in_df(hdf5_file,case,output_name,overwrite=False):
+def return_rotated_hdf5_in_df(
+    hdf5_file,
+    case,
+    output_name,
+    overwrite=False):
    """ Gets an HDF5 file and rotates it into a new one
 
    Input:
@@ -246,7 +264,8 @@ def return_rotated_hdf5_in_df(hdf5_file,case,output_name,overwrite=False):
    from os.path import isfile
 
    if isfile(output_name) and not overwrite:
-       print "   Pickle already exists; skipping, or specify overwrite next time"
+       print "   Pickle already exists; skipping, or specify "\
+               +"overwrite next time"
        return 0
 
    tooth_length = 40.
@@ -337,9 +356,59 @@ def return_rotated_hdf5_in_df(hdf5_file,case,output_name,overwrite=False):
 
    progress.finish()
 
+def rotate_df(df, degrees = 0):
+    from math import radians
+    from numpy import sin, cos
+
+    angle = radians(degrees)
+
+    x = df['x'] 
+    y = df['y'] 
+    u = df['u']
+    v = df['v']
+
+    # Coordinates ##############################################################
+    df['x'] =  x*cos(angle) + y*sin(angle) 
+    df['y'] = -x*sin(angle) + y*cos(angle) 
+    ############################################################################
+
+    # Velocity components ######################################################
+    df['u'] =  u*cos(angle) + v*sin(angle)
+    df['v'] = -u*sin(angle) + v*cos(angle)
+    ############################################################################
+
+    return df
+
+
+def correct_flow_plane_df( df, 
+                          rotation_angle        = 0,
+                          height_correction     = 0,
+                          streamwise_correction = 0,
+                         ):
+    # Do all the plane correcions ########################################
+    if rotation_angle:
+        df = rotate_df( df, rotation_angle )
+    ######################################################################
+
+    # Correct height and ignore below minimum trustable y ################
+    df.y = df.y+height_correction
+    ######################################################################
+
+    # Correct streanwise translation #####################################
+    df.x = df.x-streamwise_correction
+    ######################################################################
+
+    return df
+
 def get_time_resolved_wall_normal_line(
-    hdf5_file, case, x_locs = [0], output_hdf='data.hdf5', plot=False,
-    overwrite = False
+    hdf5_file, case, 
+    x_locs                = [0],
+    output_hdf            = 'data.hdf5',
+    plot                  = False,
+    overwrite             = False,
+    height_correction     = 0,
+    streamwise_correction = 0,
+    rotation_correction   = 0,
 ):
    """ Gets a wall normal line, interpolated data and creates a 
    time-resolved data frame with its information
