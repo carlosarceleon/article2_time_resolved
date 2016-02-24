@@ -513,6 +513,3 @@ def extract_wall_normal_lines_one_by_one():
 plot_cross_correlation_locations()
 #check_timestep()
 
-
-#usr/lib/python2.7/dist-packages/tables/path.py:100: NaturalNameWarning: object name is not a valid Python identifier: 'STE_a-12_p0_U20_z00_tr'; it does not match the pattern ``^[a-zA-Z_][a-zA-Z0-9_]*$``; you will not be able to use natural naming to access this object; using ``getattr()`` will still work, though
-

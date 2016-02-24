@@ -5,8 +5,8 @@ def run_case(case):
         case            = case,
         root            = '' ,
         output_root     = '',
-        overwrite       = True,
-        time_step_limit = 110,
+        overwrite       = False,
+        time_step_limit = 0,
         plot            = False,
         airfoil_normal  = True,
     )
@@ -20,5 +20,6 @@ cases = case_constants.file.values
 
 for c in cases:
 
-    run_case(c)
+    if "STE" in c:
+        run_case(c)
 

@@ -1,5 +1,6 @@
 def run_case(case):
     import article2_time_resolved_routines as trr
+    import run_article2_routines as routines
 
     trr.raw_data_to_pandas_hdf5(
         case            = case,
@@ -10,6 +11,21 @@ def run_case(case):
         plot            = False,
         airfoil_normal  = False,
     )
+
+    trr.raw_data_to_pandas_hdf5(
+        case            = case,
+        root            = '' ,
+        output_root     = '',
+        overwrite       = False,
+        time_step_limit = 0,
+        plot            = False,
+        airfoil_normal  = True,
+    )
+
+    try:
+        routines.get_relevant_wall_normal_data_from_pandas_hdf()
+    except:
+        pass
 
     return 0
 

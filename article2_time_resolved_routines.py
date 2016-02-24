@@ -1,3 +1,43 @@
+def get_bl_parameters(
+    hdf_file, x_loc,
+    bl_file = 'Boundary_layer_information.csv'
+):
+    import pandas as pd
+    bl_data = pd.read_csv( bl_file )
+
+    # Device ###################################################################
+    if 'Sr20R21' in hdf_file:
+        device = 'serrated'
+    elif "STE" in hdf_file:
+        device = 'straight'
+    # Z location ###############################################################
+    if 'z00' in hdf_file:
+        z_loc = 0
+    elif 'z05' in hdf_file:
+        z_loc = 0.25
+    elif 'z10' in hdf_file:
+        z_loc = 0.5
+    # X location ###############################################################
+
+    if x_loc<-1:
+        x_loc = -1
+    elif x_loc > 15 and x_loc < 21:
+        x_loc = 19
+    elif x_loc > 35 and x_loc < 40:
+        x_loc = 39
+
+    bl_case_data = bl_data[
+        ( bl_data.z_loc         == z_loc   ) &\
+        ( bl_data.x_loc         == x_loc ) &\
+        ( bl_data.Trailing_edge == device  )
+    ]
+
+    if bl_case_data.empty:
+        print hdf_file, x_loc
+
+    return bl_case_data
+
+
 def get_vorticity(df):
     from numpy import shape,zeros
     from sys import exit
@@ -149,17 +189,17 @@ def read_raw_hdf5_case_and_write_pandas_hdf5(
             streamwise_correction = streamwise_correction,
         )
 
+        if plot and ti == 0:
+            show_surface_from_df(
+                df[df.time_step == ti], 
+                'u'
+            )
+
         progress.update(ti)
 
         df_dump = df_dump.append(df,ignore_index=True)
 
         if cnt == write_frequency:
-
-            if plot:
-                show_surface_from_df(
-                    df[df.time_step == ti], 
-                    'u'
-                )
 
             if t_x_cnt == cnt:
                 hdf.put(
@@ -203,7 +243,7 @@ def show_surface_from_df(df, variable='u', points = [], mask = []):
     from numpy import meshgrid,linspace
 
     if len(df.x.unique())>1000:
-        df = regrid_df(df)
+        df = regrid_df(df, resolution = [0.2])
 
     pivoted_df = df.pivot_table(variable, 'x', 'y', fill_value=0)
 
@@ -348,13 +388,6 @@ def correct_flow_plane_df( df,
                           height_correction                = 0,
                           streamwise_correction            = 0,
                          ):
-    # Do all the plane correcions ########################################
-    if rotation_angle:
-        df = rotate_df( 
-            df                               = df,
-            degrees                          = rotation_angle,
-        )
-    ######################################################################
 
     # Correct height and ignore below minimum trustable y ################
     df.y = df.y + height_correction
@@ -362,6 +395,14 @@ def correct_flow_plane_df( df,
 
     # Correct streanwise translation #####################################
     df.x = df.x - streamwise_correction
+    ######################################################################
+
+    # Do all the plane correcions ########################################
+    if rotation_angle:
+        df = rotate_df( 
+            df                               = df,
+            degrees                          = rotation_angle,
+        )
     ######################################################################
 
     return df
@@ -680,221 +721,6 @@ def read_tecplot_file_and_correct_for_location_rotation(
 
     return df
 
-#def get_time_resolved_wall_normal_line(
-#    hdf5_file, case, 
-#    x_locs                = [0],
-#    output_hdf            = 'data.hdf5',
-#    plot                  = False,
-#    overwrite             = False,
-#    height_correction     = 0,
-#    streamwise_correction = 0,
-#    rotation_correction   = 0,
-#):
-#   """ Gets a wall normal line, interpolated data and creates a 
-#   time-resolved data frame with its information
-#
-#   Input:
-#       hdf5_file: HDF5 file to read from
-#       case: case name to read from
-#       x: the 2h normalized location to read, where x=0 is the airfoil TE
-#       output_hdf: how to name the pickle of the resulting data frame
-#   """
-#
-#   #######################################################
-#   #######################################################
-#   # IMPORTANT
-#   #
-#   # The coordinates coming from the HDF5 file are the
-#   # vertical freestream coordinates of DaVis.
-#   #
-#   # The coordinates used for the local variables are
-#   # already put to the left-to-right freestream 
-#   # coordinates
-#   #
-#   # Further, all coordinates are normalized to the
-#   # tooth length, 2h
-#   #
-#   #######################################################
-#   #######################################################
-#
-#   from progressbar import ProgressBar,Percentage,Bar,ETA,SimpleProgress
-#   import h5py
-#   import numpy as np
-#   import pandas as pd
-#   from scipy.interpolate import griddata
-#   from copy import copy
-#   from Functions import find_nearest
-#   from os.path import isfile
-#
-#   if isfile(output_hdf) and not overwrite:
-#       print "   Pickle already exists; skipping, or specify "\
-#               +"overwrite next time"
-#       return 0
-#
-#   print "   Extracting locations {0} \n".format(x_locs)\
-#           +"   for case {0} from its HDF5 database\n".format(case)\
-#           +"   into HDF {0}".format(output_hdf)
-#
-#   tooth_length = 40.
-#
-#   aq_freq = 10000.
-#
-#
-#   wall_normal_lines_DF = pd.DataFrame(
-#       columns = [
-#           'x', 
-#           'y',
-#           'vx',
-#           'vy',
-#           'vz'
-#       ]
-#   )
-#
-#   progress = ProgressBar(
-#        widgets=[
-#            Bar(),' ',
-#            Percentage(),' ',
-#            ETA(), ' (time step ',
-#            SimpleProgress(),')'], 
-#        maxval=len(available_times) 
-#        ).start()
-#
-#   t_x_cnt = 0
-#   cnt = 50
-#
-#   df_columns = [
-#       'x' ,
-#       'y' ,
-#       'vx',
-#       'vy',
-#       'vz'    ,
-#   ]
-#
-#   hdf = pd.HDFStore(output_hdf)
-#   df_xloc_wall_normal = pd.DataFrame( columns = df_columns )
-#
-#   for ti in available_times:
-#       df['vx'] =  \
-#               np.array(h5["{0}/{1}/{2}".format(case,ti,'Vy')].value)
-#       df['vy'] = \
-#               -np.array(h5["{0}/{1}/{2}".format(case,ti,'Vx')].value)
-#       df['vz'] =  \
-#               np.array(h5["{0}/{1}/{2}".format(case,ti,'Vz')].value)
-#
-#       df['vx_rot'],df['vy_rot'] = rotate(
-#           df.vx, df.vy, flow_angle
-#       )
-#
-#       df['x_rot'],df['y_rot'] = rotate(
-#           df.x, df.y, angle
-#       )
-#
-#       grid_x, grid_y = np.mgrid[
-#                   df['x_rot'].min():df['x_rot'].max():150j,
-#                   df['y_rot'].min():df['y_rot'].max():75j
-#                   ]
-#       grid_vx = griddata(
-#               (df['x_rot'].values,df['y_rot'].values), 
-#               df['vx_rot'].values, 
-#               (grid_x,grid_y),
-#               method='cubic'
-#               )
-#       grid_vy = griddata(
-#               (df['x_rot'].values,df['y_rot'].values), 
-#               df['vy_rot'].values, 
-#               (grid_x,grid_y),
-#               method='cubic'
-#               )
-#       grid_vz = griddata(
-#               (df['x_rot'].values,df['y_rot'].values), 
-#               df['vz'].values, 
-#               (grid_x,grid_y),
-#               method='cubic'
-#               )
-#
-#       df_interpolated = pd.DataFrame({
-#               'x' : grid_x.ravel(),
-#               'y' : grid_y.ravel(),
-#               'vx': grid_vx.ravel(),
-#               'vy': grid_vy.ravel(),
-#               'vz': grid_vz.ravel(),
-#               })
-#
-#       # Re-center the array to the TE location at (0,0)
-#       df_interpolated.y = df_interpolated.y - \
-#               find_nearest(0,df_interpolated.y.values)[0]
-#       df_interpolated.x = df_interpolated.x - \
-#               find_nearest(0,df_interpolated.x.values)[0]
-#
-#       # Rotate x_locs
-#       x_locs_rotated = []
-#       for x_loc in x_locs:
-#           x_loc_rotated,y0 = rotate(x_loc,0,angle)
-#           x_locs_rotated.append(x_loc_rotated)
-#           
-#       if plot and ti == 0:
-#           quick_plot_time_step(df       = df_interpolated,
-#                                mask     = mask_rot,
-#                                variable = 'vx',
-#                                x_locs   = x_locs_rotated
-#                               )
-#
-#       for x_loc_rotated in x_locs_rotated:
-#
-#           nearest_available_x,tmp = find_nearest(
-#               x_loc_rotated,
-#               df_interpolated[df_interpolated.y==0].x.values
-#           )
-#
-#           df_xloc_wall_normal_step = df_interpolated[
-#               (df_interpolated.x == nearest_available_x) &\
-#               (df_interpolated.y > 0) & \
-#               (df_interpolated.y < 0.95*df_interpolated.y.max()) 
-#           ]
-#
-#           df_xloc_wall_normal_step['ti'] = ti
-#           df_xloc_wall_normal_step['t_real'] = ti/aq_freq
-#
-#           if df_xloc_wall_normal_step.empty:
-#               print "Error, available rotated x coordinate not in mesh"
-#               h5.close()
-#               progress.finish()
-#               print x_loc_rotated
-#               break
-#
-#
-#           if cnt == 50:
-#               if t_x_cnt == cnt:
-#                   hdf.put(case,
-#                           df_xloc_wall_normal.convert_objects(), 
-#                           format='table', data_columns=True
-#                          )
-#               else:
-#                   hdf.append(case,
-#                              df_xloc_wall_normal.convert_objects(), 
-#                              format='table', data_columns=True
-#                             )
-#
-#               df_xloc_wall_normal = pd.DataFrame( 
-#                   columns = df_columns 
-#               )
-#               cnt = 0
-#           else:
-#               df_xloc_wall_normal = df_xloc_wall_normal.append(
-#                   df_xloc_wall_normal_step, ignore_index=True
-#               )
-#               cnt += 1
-#
-#       t_x_cnt += 1
-#       progress.update(t_x_cnt)
-#
-#   hdf.close()
-#   h5.close()
-#
-#   progress.finish()
-#   return wall_normal_lines_DF
-#
-
 def run_test(df):
     import numpy as np
     import matplotlib.pyplot as plt
@@ -916,10 +742,9 @@ def plot_first_frame_of_hdf(hdf_file):
                      splitext(split(hdf_file)[1])[0]\
                      .replace("_AirfoilNormal",""),
                      where = [ 'time_step = 0' ],
-                     columns = ['x']
+                     columns = ['x','y','u','v']
                     )
-    print df.x.values_count()
-    #show_surface_from_df(df)
+    show_surface_from_df(df)
     print "OK: {0}".format(hdf_file)
 
 def average_time_series(df):
@@ -973,6 +798,16 @@ def get_point_time_series_from_pandas_hdf( hdf, x,y , overwrite = False):
             join( "ReservedData",time_series_pickle_name ) 
         )
         return time_series
+
+    if "STE" in hdf:
+        x_correction = 0
+        y_correction = 1
+    else:
+        x_correction = 0
+        y_correction = 0
+
+    x += x_correction
+    y += y_correction
 
     # First we need to find out what coordinates are available #################
     coords = pd.read_hdf(
@@ -1028,14 +863,60 @@ def get_point_time_series_from_pandas_hdf( hdf, x,y , overwrite = False):
     )
     return time_series, coords.x, coords.y
 
-def wall_normal_data_to_reserved_pickles_from_pandas_hdf( hdf, x ):
+def wall_normal_data_to_reserved_pickles_from_pandas_hdf( hdf, x , 
+                                                         overwrite = False):
     from numpy import array
 
-    y_locs = array([0.1, 0.3, 0.5, 0.6, 1.0, 1.5]) * 9.
+    bl_case_data = get_bl_parameters( hdf , x)
+
+    delta_99 = bl_case_data.delta_99.values[0]
+
+    y_locs = array([0.1, 0.2,0.3, 0.4,0.5, 0.6, 0.7,0.8,0.9,1.0, 1.5]) \
+            * delta_99
+
+    print ' Getting the wall-normal data for a delta_99 of \n    {0}'.format(
+        delta_99
+    )
 
     for y in y_locs:
-        get_point_time_series_from_pandas_hdf( hdf, x, y, overwrite = False)
+        get_point_time_series_from_pandas_hdf( hdf, x, y, overwrite = overwrite)
 
+def get_Strouhal(f,delta,U):
+    delta = delta/1000.
+    return f*delta/U
 
+def concatenate_all_pickled_wall_normal_point_data(folder,output_pickle):
+    from os import listdir
+    from os.path import join,split
+    import pandas as pd
+    from re import findall
+
+    pickled_files = [f for f in listdir( folder ) \
+                     if f.endswith('.p')\
+                     and not f == split(output_pickle)[1]]
+
+    concatenated_df = pd.DataFrame()
+
+    for p in pickled_files:
+        df         = pd.read_pickle( join( folder, p ) )
+        df['file'] = p
+
+        x = float(findall( '_x-?[0-9]+.[0-9]?', p )[0].replace("_x",""))
+        y = float(findall( '_y-?[0-9]+.[0-9]?', p )[0].replace("_y",""))
+
+        case_name = findall(
+            '[A-Za-z0-9_]+_x',
+            p
+        )[0].replace('_x','')
+
+        df['near_x']    = x
+        df['near_y']    = y
+        df['case_name'] = case_name
+
+        concatenated_df = concatenated_df.append(
+            df, ignore_index = True
+        )
+
+    concatenated_df.to_pickle( output_pickle )
 
 
