@@ -1,3 +1,4 @@
+
 def get_bl_parameters(
     hdf_file, x_loc,
     bl_file = 'Boundary_layer_information.csv'
@@ -19,12 +20,21 @@ def get_bl_parameters(
         z_loc = 0.5
     # X location ###############################################################
 
-    if x_loc<-1:
+    if x_loc <= -1:
         x_loc = -1
-    elif x_loc > 15 and x_loc < 21:
+    elif x_loc > 0 and x_loc <= 6:
+        x_loc = 3
+    elif x_loc > 12 and x_loc <= 16:
+        x_loc = 14
+    elif x_loc > 16 and x_loc <= 21:
         x_loc = 19
-    elif x_loc > 35 and x_loc < 40:
+    elif x_loc > 30 and x_loc <= 36:
+        x_loc = 34
+    elif x_loc > 36 and x_loc <= 41:
         x_loc = 39
+    else:
+        print " Didn't find a corresponding point for:"
+        print "\tx: {0}".format(x_loc)
 
     bl_case_data = bl_data[
         ( bl_data.z_loc         == z_loc   ) &\
@@ -33,7 +43,9 @@ def get_bl_parameters(
     ]
 
     if bl_case_data.empty:
-        print hdf_file, x_loc
+        print "   Didn't find a BL data point for\n"
+        print "     {0}".format(hdf_file)
+        print "     at x = {0}".format( x_loc)
 
     return bl_case_data
 
@@ -783,113 +795,226 @@ def average_time_series(df):
     progress.finish()
     return averaged_df
 
-def get_point_time_series_from_pandas_hdf( hdf, x,y , overwrite = False):
+def get_multiple_point_time_series_from_pandas_hdf( 
+    hdf, x_series, y_series , delta_99, overwrite = False, append = True
+):
     import pandas as pd
     import numpy as np
     from os.path import isfile, join, split
+    print " Going to process \n\t{0}".format(split(hdf)[1])
 
-    time_series_pickle_name = "{0}_x{1}_y{2}.p".format(
-        split(hdf)[1].replace('.hdf',''), x, y
-    )
+    def build_query_and_read_hdf5( hdf , x_series, y_series, 
+                                  airfoil_normal = False):
+        from progressbar import ProgressBar,Percentage,Bar,ETA,SimpleProgress
 
-    if isfile( join( "ReservedData",time_series_pickle_name ) ) \
-       and not overwrite:
-        time_series = pd.read_pickle( 
-            join( "ReservedData",time_series_pickle_name ) 
-        )
+        threshold = 0.3
+        time_series = pd.DataFrame()
+
+        progress = ProgressBar(
+             widgets=[
+                 Bar(),' ',
+                 Percentage(),' ',
+                 ETA(), ' (query bunch  ',
+                 SimpleProgress(),')'], 
+             maxval=len(x_series)
+             ).start()
+
+        query = ''
+        cnt = 0
+        cnt_all = 0
+        for x,y in zip(x_series,y_series):
+            query = query + '( x < {0:.2f} & x > {1:.2f} & y < {2:.2f} & y > {3:.2f} ) | '.\
+            format( x + threshold, x - threshold, y + threshold, y - threshold )
+            cnt += 1
+            cnt_all += 1
+
+            # The query limit is of 32 elements, so every now and then we need
+            # to stop and read the inputs... it's a shame, but the read cannot 
+            # be optimized beyond this
+            if cnt == 8 or x == x_series[-1]:
+                query = query[:-2] # Remove the last |
+
+                # Now get the time series ######################################
+                time_series = time_series.append(pd.read_hdf(
+                    hdf,
+                    split(hdf)[1].replace('.hdf5','').\
+                    replace('_AirfoilNormal',''),
+                    where = query,
+                ), ignore_index = True )
+                # ##############################################################
+
+                query = ''
+                cnt = 0
+                progress.update(cnt_all)
+
+        progress.finish()
+
         return time_series
 
-    if "STE" in hdf:
-        x_correction = 0
-        y_correction = 1
-    else:
-        x_correction = 0
-        y_correction = 0
+    root = 'LineReservedData'
 
-    x += x_correction
-    y += y_correction
+    y_series = np.array( y_series )
+    x_series = np.array( x_series )
 
-    # First we need to find out what coordinates are available #################
-    coords = pd.read_hdf(
-        hdf,
-        split(hdf)[1].replace('.hdf5','').replace('_AirfoilNormal',''),
-        where = ['time_step = 0'],
-        columns = [ 'x', 'y' ],
+    time_series_pickle_name = "{0}.p".format(
+        split(hdf)[1].replace('.hdf5','')
     )
+
+    time_series   = pd.DataFrame()
+
+    if isfile( join( root ,time_series_pickle_name ) ): 
+       if append:
+            time_series = pd.read_pickle( 
+                join( root ,time_series_pickle_name ) 
+            )
+       elif not overwrite:
+            time_series = pd.read_pickle( 
+                join( root ,time_series_pickle_name ) 
+            )
+            return time_series
+
+
+    # Perform some post-fine corrections #######################################
+    height_correction = { # Negative means it was too high; positive too low
+        'Sr20R21_a0_p0_U20_z00_tr':      0.5,
+        'Sr20R21_a0_p0_U20_z05_tr_New':  0.0,
+        'Sr20R21_a0_p0_U20_z10_tr':      0.0,#-1.0, #-4.0,
+        'STE_a0_p0_U20_z00_tr':          0.5,
+    }
+    # ##########################################################################
+
+    # Shift the requested height to the correct location; later the ############
+    # whole hdf series will be re-corrected again ##############################
+    y_series = y_series + height_correction[ split(hdf)[1].replace('.hdf5','')]
     # ##########################################################################
 
     # Now we need to find the coordinate pair that closest gets to the #########
     # requested one ############################################################
-    diff_x = np.abs( x - coords.x )
-    diff_y = np.abs( y - coords.y )
-    selected_x = coords.x.values[np.argmin(diff_x + diff_y)]
-    selected_y = coords.y.values[np.argmin(diff_x + diff_y)]
+    available_y_series = []
+    available_x_series = []
+    for x,y in zip(x_series,y_series):
+        if x < 0: coord_hdf = hdf.replace('.hdf5','_AirfoilNormal.hdf5')
+        else: coord_hdf = hdf
+        # First we need to find out what coordinates are available #############
+        coords = pd.read_hdf(
+            coord_hdf,
+            split(hdf)[1].replace('.hdf5','').replace('_AirfoilNormal',''),
+            where = ['time_step = 0'],
+            columns = [ 'x', 'y' ],
+        )
+        # ######################################################################
 
-    if abs(selected_x - x) > 1.:
-        print " Found a too large distance from the requested x"
-        print " Requested {0}".format(x)
-        print " Closest available {0}".format(selected_x)
-        return 0
-    if abs(selected_y - y) > 1.:
-        print " Found a too large distance from the requested y"
-        print " Requested {0}".format(y)
-        print " Closest available {0}".format(selected_y)
-        return 0
+        diff_x = np.abs( x - coords.x )
+        diff_y = np.abs( y - coords.y )
+        selected_x = coords.x.values[np.argmin(diff_x + diff_y)]
+        selected_y = coords.y.values[np.argmin(diff_x + diff_y)]
 
-    print " Found the following closest points:"
-    print " Asked x = {0}".format(x)
-    print " Found x = {0}".format(selected_x)
-    print " Asked y = {0}".format(y)
-    print " Found y = {0}".format(selected_y)
+        go = True
+        if abs(selected_x - x) > 1.:
+            print " Found a too large distance from the requested x at {0:.2f}"\
+            .format( y )
+            print " Requested {0}".format(x)
+            print " Closest available {0}".format(selected_x)
+            go = False
+
+        if abs(selected_y - y) > 1.:
+            print " Found a too large distance from the requested y"
+            print " Requested {0}".format(y)
+            print " Closest available {0}".format(selected_y)
+            go = False
+
+        if go:
+            available_y_series.append( selected_y )
+            available_x_series.append( selected_x )
+
+        # ######################################################################
+
+    #for f in zip( available_x_series , available_y_series ): print f
+    # Construct the query to the HDF #######################################
+    negative_x_series , positive_x_series = \
+            [ i for i in available_x_series if i <  0 ],\
+            [ j for j in available_x_series if j >= 0 ]
+
+    time_series_p = pd.DataFrame()
+    time_series_n = pd.DataFrame()
+
+    if len(negative_x_series):
+        time_series_n = time_series_n.append(
+            build_query_and_read_hdf5( 
+                hdf.replace('.hdf5','_AirfoilNormal.hdf5'), 
+                negative_x_series, available_y_series,
+                airfoil_normal = True 
+            ), ignore_index = True
+        )
+
+    if len(positive_x_series):
+        time_series_p = time_series_p.append(
+            build_query_and_read_hdf5( 
+                hdf, positive_x_series, available_y_series,
+                airfoil_normal = False 
+            ), ignore_index = True
+        )
+
+    if not time_series_p.empty and not time_series_n.empty:
+        time_series = time_series.append(
+            time_series_p.append(time_series_n, ignore_index = True),
+            ignore_index = True)
+    elif not time_series_n.empty:
+        time_series = time_series.append(time_series_n, ignore_index = True)
+    elif not time_series_p.empty:
+        time_series = time_series.append(time_series_p, ignore_index = True)
+
+    time_series = time_series.drop_duplicates()
+
+    # Correct the whole series for the fine-tuning of the height correction ####
+    time_series.y = time_series.y - \
+            height_correction[ split(hdf)[1].replace('.hdf5','')]
     # ##########################################################################
 
-    # Now get the time series ##################################################
-    time_series = pd.read_hdf(
-        hdf,
-        split(hdf)[1].replace('.hdf5','').replace('_AirfoilNormal',''),
-        where = [ 
-            'x < {0}'.format( selected_x + 0.01),
-            'x > {0}'.format( selected_x - 0.01),
-            'y < {0}'.format( selected_y + 0.01),
-            'y > {0}'.format( selected_y - 0.01),
-                ],
-        columns = ['u','v','w','time_step','x','y']
-    )
-    # ##########################################################################
+    time_series.y = np.round( time_series.y, 2 )
+    time_series.x = np.round( time_series.x, 2 )
 
-    time_series = time_series.sort_values( by = 'time_step' )
+    time_series = time_series.sort_values( by = ['x','y','time_step'] )
+
     time_series.to_pickle(
-        join( 'ReservedData', '{0}'.format(time_series_pickle_name) )
+        join( root, '{0}'.format(time_series_pickle_name) )
     )
-    return time_series, coords.x, coords.y
 
-def wall_normal_data_to_reserved_pickles_from_pandas_hdf( hdf, x , 
-                                                         overwrite = False):
+
+def wall_normal_data_to_reserved_pickles_from_pandas_hdf( hdf, x_series , 
+                                                         overwrite = False,
+                                                        append = True):
     from numpy import array
 
-    bl_case_data = get_bl_parameters( hdf , x)
+    x_locs_to_get = []
+    y_locs_to_get = []
+    for x in x_series:
+        bl_case_data = get_bl_parameters( hdf , x)
 
-    delta_99 = bl_case_data.delta_99.values[0]
+        delta_99 = bl_case_data.delta_99.values[0]
 
-    y_locs = array([0.1, 0.2,0.3, 0.4,0.5, 0.6, 0.7,0.8,0.9,1.0, 1.5]) \
-            * delta_99
+        y_locs = array(expected_wall_normal_locations) \
+                * delta_99
 
-    print ' Getting the wall-normal data for a delta_99 of \n    {0}'.format(
-        delta_99
+        for y in y_locs:
+            x_locs_to_get.append(x)
+            y_locs_to_get.append(y)
+
+    get_multiple_point_time_series_from_pandas_hdf( 
+        hdf, x_locs_to_get , y_locs_to_get , delta_99, overwrite = overwrite, 
+        append = append
     )
-
-    for y in y_locs:
-        get_point_time_series_from_pandas_hdf( hdf, x, y, overwrite = overwrite)
 
 def get_Strouhal(f,delta,U):
     delta = delta/1000.
     return f*delta/U
 
-def concatenate_all_pickled_wall_normal_point_data(folder,output_pickle):
+def concatenate_all_pickled_wall_normal_cases(folder,output_pickle):
     from os import listdir
     from os.path import join,split
     import pandas as pd
     from re import findall
+    from numpy import round as np_round
 
     pickled_files = [f for f in listdir( folder ) \
                      if f.endswith('.p')\
@@ -901,17 +1026,32 @@ def concatenate_all_pickled_wall_normal_point_data(folder,output_pickle):
         df         = pd.read_pickle( join( folder, p ) )
         df['file'] = p
 
-        x = float(findall( '_x-?[0-9]+.[0-9]?', p )[0].replace("_x",""))
-        y = float(findall( '_y-?[0-9]+.[0-9]?', p )[0].replace("_y",""))
-
         case_name = findall(
-            '[A-Za-z0-9_]+_x',
-            p
-        )[0].replace('_x','')
+            '[A-Za-z0-9_]+',p
+        )[0]
 
-        df['near_x']    = x
-        df['near_y']    = y
-        df['case_name'] = case_name
+        df['case_name']    = case_name
+        df['near_x']       = np_round( df.x )
+        df['delta_99']     = 0
+        df['near_y_delta'] = 0
+        df['near_y']       = 0
+
+        print "   For the case {0}".format(case_name)
+        print "     found the following x locations"
+        print "     {0}".format(df.near_x.unique())
+
+        for x in df.near_x.unique():
+            bl = get_bl_parameters( case_name, x )
+            df['delta_99'].loc[df.near_x == x] = bl.delta_99.values[0]
+            df['near_y'].loc[df.near_x == x] = \
+                    np_round( df.loc[df.near_x == x].y , 1 )
+            df['near_y_delta'].loc[df.near_x == x] = \
+                    map(
+                        lambda p: \
+                        find_nearest(p, expected_wall_normal_locations), 
+                        df.loc[df.near_x == x].y / bl.delta_99.values[0]
+                    )
+
 
         concatenated_df = concatenated_df.append(
             df, ignore_index = True
@@ -920,3 +1060,11 @@ def concatenate_all_pickled_wall_normal_point_data(folder,output_pickle):
     concatenated_df.to_pickle( output_pickle )
 
 
+# CONSTANTS ####################################################################
+
+from numpy import arange
+expected_wall_normal_locations = arange( 0.1, 1.25, 0.05 )
+#expected_wall_normal_locations = [
+#    0.25, 0.5, 0.75, 1,
+#    0.1, 0.3, 0.6, 0.9,
+#]

@@ -19,22 +19,22 @@ def return_case_df():
 
     case_dicts = [ 
 
-        #{
-        #    'file':              'STE_a0_p0_U20_z00_tr.hdf5',
-        #    'case_name':         'Straight edge',
-        #    'type':              'surface',
-        #    'x_loc':             "-1, -2, -3, -5",  # [mm]
-        #    'y_trust_min':       "1, 1", # [mm]
-        #    'Cf':                0.0015,
-        #    'height_correction': ste_height_correction,
-        #    'rotation':          ste_rotation_correction,
-        #    'x_corr':            ste_x_correction,
-        #},
+        {
+            'file':              'STE_a0_p0_U20_z00_tr.hdf5',
+            'case_name':         'Straight edge',
+            'type':              'surface',
+            'x_loc':             "-1",  # [mm]
+            'y_trust_min':       "1, 1", # [mm]
+            'Cf':                0.0015,
+            'height_correction': ste_height_correction,
+            'rotation':          ste_rotation_correction,
+            'x_corr':            ste_x_correction,
+        },
         {
             'file':              'Sr20R21_a0_p0_U20_z00_tr.hdf5',
             'case_name':         'Serrated, $z/\\lambda = 0$',
             'type':              'surface',
-            'x_loc':             "-5,-2, -3, -1, 15,18, 19, 20, 35, 38,39, 40", # [mm]
+            'x_loc':             "36,37,38,39,40", # [mm]
             'y_trust_min':       "0.4, 0.4, 0.4, 0.4, 0.4, 0.4",
             'Cf':                0.0015,
             'height_correction': z00_height_correction,
@@ -45,7 +45,7 @@ def return_case_df():
             'file':              'Sr20R21_a0_p0_U20_z05_tr_New.hdf5',
             'case_name':         'Serrated, $z/\\lambda = 0.25$',
             'type':              'surface',
-            'x_loc':             "-1,-2, -3, -5, 15, 18,19,20", # [mm]
+            'x_loc':             "16,17,18,19,20", # [mm]
             'y_trust_min':       "0.3, 0.3", # [mm]
             'Cf':                0.0015,
             'height_correction': z05_height_correction,
@@ -56,14 +56,14 @@ def return_case_df():
             'file':              'Sr20R21_a0_p0_U20_z10_tr.hdf5',
             'case_name':         'Serrated, $z/\\lambda = 0.5$',
             'type':              'surface',
-            'x_loc':             "-5, -2, -3, -1", # [mm]
+            'x_loc':             "-5,-4,-3,-2,-1", # [mm]
             'y_trust_min':       "1,1", # [mm]
             'Cf':                0.0015,
             'height_correction': z10_height_correction,
             'rotation':          z10_rotation_correction,
             'x_corr':            z10_x_correction,
         },
-
+        
     ]
 
     for c in case_dicts:

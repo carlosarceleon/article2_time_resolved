@@ -22,17 +22,9 @@ def get_relevant_wall_normal_data_from_pandas_hdf(exceptions = []):
         if not skip:
             x_locs = [float(f) for f in case[1].x_loc.split(',')]
 
-            for x in x_locs:
-                if x < 0:
-                    cf = case_file.replace('.hdf5','_AirfoilNormal.hdf5')
-                else:
-                    cf = case_file
-
-                print "  Getting the wall normal data at {0} of \n{1}"\
-                        .format( x, cf )
-                trr.wall_normal_data_to_reserved_pickles_from_pandas_hdf( 
-                    join(root, cf), x , overwrite = False
-                )
+            trr.wall_normal_data_to_reserved_pickles_from_pandas_hdf( 
+                join(root, case_file), x_locs , overwrite = False, append = False
+            )
 
 def get_available_cases_df():
     from os import listdir
@@ -90,6 +82,39 @@ def get_df_cases_from_pickle_names(cases_df):
 
     return case_time_series_dfs
 
+#def correct_heights(df):
+#    from numpy import round as np_round
+#    
+#    def round_of_rating(number):
+#        """Round a number to the closest half integer.
+#        """
+#        return round(number * 20) / 2 / 10.
+#
+#    height_correction = {
+#        'Sr20R21_a0_p0_U20_z00_tr':     -1.0,
+#        'Sr20R21_a0_p0_U20_z05_tr_New':  0.0,
+#        'Sr20R21_a0_p0_U20_z10_tr':      1.0,
+#    }
+#
+#    for key in height_correction.keys():
+#
+#        df.loc[ df.case_name == key , 'y'] = \
+#                df[ df.case_name == key ].y + height_correction[key]
+#
+#        df.loc[ df.case_name == key , 'near_y'] = \
+#                df[ df.case_name == key ].near_y \
+#                + height_correction[key]
+#
+#        df.loc[ df.case_name == key , 'near_y_delta'] = \
+#                df[ df.case_name == key ].near_y \
+#                / df[ df.case_name == key ].delta_99
+#
+#    df.near_y_delta = np_round(df.near_y_delta,1)
+#    df.near_y       = np_round(df.near_y      ,1)
+#
+#    print sorted(df.near_y_delta.unique())
+#    return df
+
 
 def do_the_time_resolved_analysis():
     import pandas as pd
@@ -97,9 +122,9 @@ def do_the_time_resolved_analysis():
     import article2_data_analysis_routines as dar
 
     def do_the_frequency_plot(df,plot_name, schematic = ''):
-        for y in df.near_y.unique():
+        for y in df.near_y_delta.unique():
 
-            df_y_cases = df[ df.near_y == y ]
+            df_y_cases = df[ df.near_y_delta == y ]
 
             dar.do_the_frequency_analysis( 
                 df_y_cases,
@@ -109,22 +134,27 @@ def do_the_time_resolved_analysis():
             )
 
     def do_the_Reynolds_quadrant_analysis(df, plot_name):
-        for y in TE_cases.near_y.unique():
+        for y in df.near_y_delta.unique():
 
-            df_y_cases = df[ df.near_y == y ]
+            df_y_cases = df[ df.near_y_delta == y ]
 
             dar.do_the_reynolds_stress_quadrant_analysis(
                 df_y_cases,
-                y = y,
+                y_delta = y,
                 plot_name = plot_name,
             )
 
-    def do_the_coherence_analysis(df,plot_name,schematic = ''):
+    def do_the_coherence_analysis(df_upstream, df_downstream
+                                  ,plot_name,schematic = ''):
         coherence_df = pd.DataFrame()
-        for y in TE_cases.near_y.unique():
+        for y_up, y_down in zip(
+            sorted(df_upstream.near_y_delta.unique()),
+            sorted(df_downstream.near_y_delta.unique())
+        ):
 
             partial_coherence_df = dar.do_the_coherence_analysis(
-                df[ df.near_y == y ],
+                df_upstream[ df_upstream.near_y_delta == y_up ],
+                df_downstream[ df_downstream.near_y_delta == y_down ],
             )
 
             if not partial_coherence_df.empty:
@@ -137,7 +167,7 @@ def do_the_time_resolved_analysis():
                                  schematic = schematic)
 
 
-    all_cases_pickle = pd.read_pickle( join( root, 'AllPointPickle.p') )
+    all_cases_pickle = pd.read_pickle( join( root, 'AllPointPickle.p' ) )
 
     x0_cases = all_cases_pickle[ 
         all_cases_pickle.near_x == -1 
@@ -146,90 +176,116 @@ def do_the_time_resolved_analysis():
         (all_cases_pickle.near_x == -3) | (all_cases_pickle.near_x == -1)
     ]
 
-    # TE locations # ###########################################################
-    TE_cases = all_cases_pickle[ 
-        (all_cases_pickle.near_x == -1) & \
-        (all_cases_pickle.case_name == 'STE_a0_p0_U20_z00_tr_AirfoilNormal5')
+    x0_coherence_cases = x0_coherence_cases[
+        x0_coherence_cases.case_name != "STE_a0_p0_U20_z00_tr"
     ]
-    TE_cases = TE_cases.append(
+
+    # TE locations # ###########################################################
+    #TE_cases = all_cases_pickle[ 
+    #    (all_cases_pickle.near_x == -1) & \
+    #    (all_cases_pickle.case_name == 'STE_a0_p0_U20_z00_tr')
+    #]
+    TE_cases = \
         all_cases_pickle[ 
             (all_cases_pickle.near_x == -1) & \
             (all_cases_pickle.case_name == \
-             'Sr20R21_a0_p0_U20_z10_tr_AirfoilNormal5')
-        ], ignore_index = True
-    )
+             'Sr20R21_a0_p0_U20_z10_tr')
+        ]
     TE_cases = TE_cases.append(
         all_cases_pickle[ 
             (all_cases_pickle.near_x == 20) & \
             (all_cases_pickle.case_name == \
-             'Sr20R21_a0_p0_U20_z05_tr_New5')
+             'Sr20R21_a0_p0_U20_z05_tr_New')
         ], ignore_index = True
     )
     TE_cases = TE_cases.append(
         all_cases_pickle[ 
             (all_cases_pickle.near_x == 40) & \
             (all_cases_pickle.case_name == \
-             'Sr20R21_a0_p0_U20_z00_tr5')
+             'Sr20R21_a0_p0_U20_z00_tr')
+        ], ignore_index = True
+    )
+    TE_cases = TE_cases.append(
+        all_cases_pickle[ 
+            (all_cases_pickle.near_x == -1) & \
+            (all_cases_pickle.case_name == \
+             'STE_a0_p0_U20_z00_tr')
         ], ignore_index = True
     )
 
-    # Upwind locations #########################################################
-    TE_cases_upwind = all_cases_pickle[ 
-        (all_cases_pickle.near_x == -3) & \
-        (all_cases_pickle.case_name == 'STE_a0_p0_U20_z00_tr_AirfoilNormal5')
-    ]
-    TE_cases_upwind = TE_cases_upwind.append(
+
+    # upstream locations ######################################################
+    #TE_cases_upstream = all_cases_pickle[ 
+    #    (all_cases_pickle.near_x == -3) & \
+    #    (all_cases_pickle.case_name == 'STE_a0_p0_U20_z00_tr')
+    #]
+    up_shift = -4
+    #up_shift = -2
+    TE_cases_upstream = \
         all_cases_pickle[ 
-            (all_cases_pickle.near_x == -3) & \
+            (all_cases_pickle.near_x == -1 + up_shift) & \
             (all_cases_pickle.case_name == \
-             'Sr20R21_a0_p0_U20_z10_tr_AirfoilNormal5')
+             'Sr20R21_a0_p0_U20_z10_tr')
+        ]
+    TE_cases_upstream = TE_cases_upstream.append(
+        all_cases_pickle[ 
+            (all_cases_pickle.near_x == 20 + up_shift) & \
+            (all_cases_pickle.case_name == \
+             'Sr20R21_a0_p0_U20_z05_tr_New')
         ], ignore_index = True
     )
-    TE_cases_upwind = TE_cases_upwind.append(
+    TE_cases_upstream = TE_cases_upstream.append(
         all_cases_pickle[ 
-            (all_cases_pickle.near_x == 18) & \
+            (all_cases_pickle.near_x == 40 + up_shift) & \
             (all_cases_pickle.case_name == \
-             'Sr20R21_a0_p0_U20_z05_tr_New5')
+             'Sr20R21_a0_p0_U20_z00_tr')
         ], ignore_index = True
     )
-    TE_cases_upwind = TE_cases_upwind.append(
+    TE_cases_upstream = TE_cases_upstream.append(
         all_cases_pickle[ 
-            (all_cases_pickle.near_x == 38) & \
+            (all_cases_pickle.near_x == -1 + up_shift) & \
             (all_cases_pickle.case_name == \
-             'Sr20R21_a0_p0_U20_z00_tr5')
+             'STE_a0_p0_U20_z00_tr')
         ], ignore_index = True
     )
 
-    TE_cases_for_coherence = TE_cases_upwind.append(
-        TE_cases, ignore_index = True
-    )
+    #TE_cases          = correct_heights( TE_cases )
+    #TE_cases_upstream = correct_heights( TE_cases_upstream )
+
 
     schematic_TE = '/home/carlos/Documents/PhD/Articles/Article_2/'+\
-            'Figures/measurement_locations_TE_m2.png'
+            'Figures/measurement_locations_TE_m2_with_edge_normal.png'
 
     schematic_x0 = '/home/carlos/Documents/PhD/Articles/Article_2/'+\
             'Figures/measurement_locations_x0_m2.png'
 
 
-    do_the_frequency_plot( x0_cases, 'x0', schematic = schematic_x0 )
-    do_the_frequency_plot( TE_cases, 'TE',  schematic = schematic_TE)
+    #do_the_frequency_plot( TE_cases, 'TE',  schematic = schematic_TE)
 
-    #do_the_Reynolds_quadrant_analysis( x0_cases, 'x0' )
+    schematic_TE = '/home/carlos/Documents/PhD/Articles/Article_2/'+\
+            'Figures/measurement_locations_TE_m2_noSTE.png'
+
+    TE_cases = TE_cases[ TE_cases.case_name != 'STE_a0_p0_U20_z00_tr' ]
+
     #do_the_Reynolds_quadrant_analysis( TE_cases, 'TE' )
 
+    do_the_coherence_analysis( TE_cases_upstream, TE_cases, 'TE' , 
+                              schematic = schematic_TE)
+    #dar.plot_mean_and_std( TE_cases )
+
+    #do_the_frequency_plot( x0_cases, 'x0', schematic = schematic_x0 )
+    #do_the_Reynolds_quadrant_analysis( x0_cases, 'x0' )
     #do_the_coherence_analysis( x0_coherence_cases , "x0",
     #                         schematic = schematic_x0)
-    #do_the_coherence_analysis( TE_cases_for_coherence, 'TE' , 
-    #                          schematic = schematic_TE)
-
 
 from os.path import join
 import publish
 root = join('/home/carlos/Documents/PhD/Articles/Article_2',
-            'Article2_Scripts/time_resolved_scripts/ReservedData/')
+            'Article2_Scripts/time_resolved_scripts/LineReservedData/')
 
 
-get_relevant_wall_normal_data_from_pandas_hdf(exceptions = ['STE'])
-get_relevant_wall_normal_data_from_pandas_hdf()
-#do_the_time_resolved_analysis()
-#publish.publish()
+#get_relevant_wall_normal_data_from_pandas_hdf(exceptions = ['STE'])
+#get_relevant_wall_normal_data_from_pandas_hdf()
+#get_relevant_wall_normal_data_from_pandas_hdf(exceptions = ['z05','STE','z00'])
+do_the_time_resolved_analysis()
+publish.publish()
