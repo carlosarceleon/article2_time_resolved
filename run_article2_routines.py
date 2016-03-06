@@ -219,8 +219,8 @@ def do_the_time_resolved_analysis():
     #    (all_cases_pickle.near_x == -3) & \
     #    (all_cases_pickle.case_name == 'STE_a0_p0_U20_z00_tr')
     #]
-    up_shift = -4
-    #up_shift = -2
+    #up_shift = -4
+    up_shift = -2
     TE_cases_upstream = \
         all_cases_pickle[ 
             (all_cases_pickle.near_x == -1 + up_shift) & \
@@ -260,14 +260,14 @@ def do_the_time_resolved_analysis():
             'Figures/measurement_locations_x0_m2.png'
 
 
-    #do_the_frequency_plot( TE_cases, 'TE',  schematic = schematic_TE)
+    do_the_frequency_plot( TE_cases, 'TE',  schematic = schematic_TE)
 
     schematic_TE = '/home/carlos/Documents/PhD/Articles/Article_2/'+\
             'Figures/measurement_locations_TE_m2_noSTE.png'
 
     TE_cases = TE_cases[ TE_cases.case_name != 'STE_a0_p0_U20_z00_tr' ]
 
-    #do_the_Reynolds_quadrant_analysis( TE_cases, 'TE' )
+    do_the_Reynolds_quadrant_analysis( TE_cases, 'TE' )
 
     do_the_coherence_analysis( TE_cases_upstream, TE_cases, 'TE' , 
                               schematic = schematic_TE)

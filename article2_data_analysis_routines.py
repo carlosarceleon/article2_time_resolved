@@ -591,7 +591,7 @@ def do_the_frequency_analysis(cases_df, y, plot_name = '', schematic = ''):
                 markeredgewidth = markeredgewidth,
                 markerfacecolor = markerfacecolor,
                 markeredgecolor = color,
-                markersize      = markersize,
+                markersize      = markersize*1.5,
                 mew             = mew,
                 color           = color
             )
@@ -619,7 +619,7 @@ def do_the_frequency_analysis(cases_df, y, plot_name = '', schematic = ''):
                     markeredgewidth = markeredgewidth,
                     markerfacecolor = markerfacecolor,
                     markeredgecolor = color,
-                    markersize      = markersize,
+                    markersize      = markersize*1.5,
                     mew             = mew,
                     color           = color
                 )
@@ -1155,7 +1155,7 @@ fs              = 10000
 St_min          = 0.225
 St_max          = 2.4
 
-markeredgewidth = 2
+markeredgewidth = 3
 markerfacecolor = 'none'
 markersize      = 12
 mew             = 4 # Marker edge width
