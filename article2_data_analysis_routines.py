@@ -275,7 +275,7 @@ def do_the_coherence_analysis(df_upstream, df_downstream):
 
     return coherence_df
 
-def plot_streamwise_f_coherence( pickle_name ):
+def plot_streamwise_f_coherence( hdf_name, overwrite = False ):
     import matplotlib.pyplot as plt
     import seaborn as sns
     from matplotlib                      import rc
@@ -283,7 +283,7 @@ def plot_streamwise_f_coherence( pickle_name ):
     from numpy                           import corrcoef
     from scipy.integrate                 import simps
     from article2_time_resolved_routines import find_nearest
-    from pandas                          import read_pickle, DataFrame
+    from pandas                          import read_hdf, DataFrame, read_pickle
     from pandas                          import ewma
     from os.path                         import split, isfile
     from scipy.special                   import gamma as gamma_func
@@ -298,19 +298,22 @@ def plot_streamwise_f_coherence( pickle_name ):
     sns.set(font='serif',font_scale=3.0,style='ticks')
     rc('font',family='serif', serif='Linux Libertine')
 
-    case_df = read_pickle( pickle_name )
+    case_coords = read_hdf( hdf_name , where = ( 't=0' ),
+                          columns = [ 'near_x_2h', 'near_y_delta' ]
+                          )
 
-    case = split( pickle_name )[1].replace('.p','')
+    case = split( hdf_name )[1].replace('.hdf5','')
+    fig, ax = plt.subplots(1, 1, sharex = True)
 
     if isfile( 'test/StreamwiseCorrelation_{0}.p'\
                             .format( case )
-             ):
+             ) and not overwrite:
         corr_pivot = read_pickle( 'test/StreamwiseCorrelation_{0}.p'\
                             .format( case )
                                 )
 
     else:
-        available_x = sorted( case_df.near_x_2h.unique() )
+        available_x = sorted( case_coords.near_x_2h.unique() )
 
         if len(available_x) < 2:
             return 0
@@ -319,15 +322,18 @@ def plot_streamwise_f_coherence( pickle_name ):
 
         print case, x1
 
-        case_x_1 = case_df[ 
-            ( case_df.near_x_2h == x1 )
-        ]
-
         y_locs  = []
         #gamma_y = []
         corr_df = DataFrame()
 
-        y_to_process = case_x_1.near_y_delta.unique()
+        case_x_1_y = read_hdf(hdf_name, 
+                            where = ( 
+                                'near_x_2h = {0} '\
+                                .format( x1 ) ),
+                            columns = ['near_y_delta']
+                           )
+
+        y_to_process = case_x_1_y.near_y_delta.unique()
 
         progress = ProgressBar(
              widgets=[
@@ -339,9 +345,15 @@ def plot_streamwise_f_coherence( pickle_name ):
              ).start()
 
 
-        fig, ax = plt.subplots(1, 1, sharex = True)
         cnt = 0
         for y in y_to_process:
+
+            case_x_1 = read_hdf(hdf_name, 
+                                where = ( 
+                                    'near_x_2h = {0} & near_y_delta = {1}'\
+                                    .format( x1 , y ) )
+                              )
+
 
             xcorr      = []
             delta_x    = []
@@ -349,9 +361,11 @@ def plot_streamwise_f_coherence( pickle_name ):
 
             for x2 in available_x:
 
-                case_x_2 = case_df[ 
-                    case_df.near_x_2h == x2 
-                ]
+                case_x_2 = read_hdf(hdf_name, 
+                                   where = ( 
+                                       'near_x_2h = {0} & near_y_delta = {1}'\
+                                       .format( x2 , y ) )
+                                  )
 
                 if case_x_2.empty:
                     break
@@ -373,9 +387,10 @@ def plot_streamwise_f_coherence( pickle_name ):
                     corrcoef( case_x_1_y.u, case_x_2_y.u )[1,0]
                 )
 
+                x1_real = case_x_1_y[ case_x_1_y.near_x_2h == x1 ].x.unique()[0]
+                x2_real = case_x_2_y[ case_x_2_y.near_x_2h == x2 ].x.unique()[0]
                 delta_x.append( 
-                    case_x_2_y[ case_x_2_y.near_x_2h == x2 ].x.unique()[0] - \
-                    case_x_1_y[ case_x_1_y.near_x_2h == x1 ].x.unique()[0]
+                    x2_real - x1_real
                 )
                 delta_x_2h.append( 
                     case_x_2_y[ case_x_2_y.near_x_2h == x2 ]\
@@ -387,9 +402,12 @@ def plot_streamwise_f_coherence( pickle_name ):
             corr_df = corr_df.append(
                 DataFrame( data = {
                     'xcorr':      xcorr,
-                    #'delta_x':    delta_x,
+                    'delta_x':    delta_x,
                     'delta_x_2h': delta_x_2h,
-                    'y':          y
+                    'y_bl':       y,
+                    'y_real':     case_x_1.y.unique()[0],
+                    'x1_real':    x1_real,
+                    'x2_real':    x2_real,
                 } ), ignore_index = True
             )
 
@@ -398,17 +416,16 @@ def plot_streamwise_f_coherence( pickle_name ):
 
             y_locs.append( y )
 
-            #for ix in range(len(f)):
-            #    int_gamma_per_freq.append( 
-            #        simps( gamma.T[ ix ], delta_x )
-            #    )
-
             cnt += 1
             progress.update( cnt )
 
         progress.finish()
 
-        corr_df = corr_df.sort_values( by = [ 'delta_x_2h', 'y' ] )
+        corr_df.to_pickle( 'test/StreamwiseCorrelation_Values_{0}.p'.\
+                          format( case )
+                         )
+
+        corr_df = corr_df.sort_values( by = [ 'delta_x_2h', 'y_bl' ] )
 
         for x in corr_df.delta_x_2h.unique():
             corr_df.loc[
@@ -418,7 +435,7 @@ def plot_streamwise_f_coherence( pickle_name ):
                 com = 4
             )
 
-        corr_pivot = corr_df.pivot( 'y', 'delta_x_2h', 'xcorr' )
+        corr_pivot = corr_df.pivot( 'y_bl', 'delta_x_2h', 'xcorr' )
 
 
     X   = corr_pivot.columns.values
@@ -441,7 +458,7 @@ def plot_streamwise_f_coherence( pickle_name ):
     plt.close( fig )
 
 
-def plot_vertical_coherence( pickle_names ):
+def plot_vertical_coherence( hdf_names ):
     import matplotlib.pyplot as plt
     import seaborn as sns
     from matplotlib                      import rc
@@ -449,8 +466,8 @@ def plot_vertical_coherence( pickle_names ):
     from numpy                           import meshgrid, array, corrcoef
     from numpy                           import arange
     from scipy.integrate                 import simps
-    from pandas                          import DataFrame, read_pickle
-    from os.path                         import isfile, split
+    from pandas                          import DataFrame, read_hdf
+    from os.path                         import split
     from article2_time_resolved_routines import find_nearest
 
     rc('text',usetex=True)
@@ -462,193 +479,296 @@ def plot_vertical_coherence( pickle_names ):
 
     df_U = DataFrame()
 
-    for pickle_name in pickle_names:
-        case_df = read_pickle( pickle_name )
+    for hdf_name in hdf_names:
+        case_coords = read_hdf( 
+            hdf_name , 
+            where = ( 't=0' ),
+            columns = [ 'near_x_2h', 'near_y_delta' ]
+        )
 
-        case = split( pickle_name )[1].replace('.p','')
+        case = split( hdf_name )[1].replace('.hdf5','')
 
         color, marker, cmap = get_color_and_marker( 
             case
         )
 
-        if isfile( 'test/StreamwiseCorrelation_{0}.p'\
-                                .format( case )
-                 ):
-            corr_pivot = read_pickle( 'test/StreamwiseCorrelation_{0}.p'\
-                                .format( case )
-                                    )
+        available_x = sorted( case_coords.near_x_2h.unique() )
 
-            available_x = sorted( case_df.near_x_2h.unique() )
+        # Only evaluate the location over the TE # #########################
+        if 'z10' in hdf_name :
+            x = find_nearest( 0.00, available_x )
+        elif  'STE' in hdf_name:
+            x = find_nearest( -0.05, available_x )
+        elif 'z05' in hdf_name:
+            x = find_nearest( 0.5, available_x )
+        elif 'z00' in hdf_name:
+            x = find_nearest( 1, available_x )
 
-            # Only evaluate the location over the TE # #########################
-            if 'z10' in pickle_name :
-                x = find_nearest( 0.00, available_x )
-            elif  'STE' in pickle_name:
-                x = find_nearest( -0.05, available_x )
-            elif 'z05' in pickle_name:
-                x = find_nearest( 0.5, available_x )
-            elif 'z00' in pickle_name:
-                x = find_nearest( 1, available_x )
+        case_df = read_hdf(hdf_name, 
+                           where = ( 'near_x_2h = {0}'.format( x ) )
+                          )
 
-            case_df = case_df[ case_df.near_x_2h == x]
+        available_y = case_coords.near_y_delta.unique()
+        if "STE" in hdf_name: 
+            available_y = case_df.near_y_delta.unique()[1::2]
+        elif "z10" in hdf_name:
+            available_y = case_df.near_y_delta.unique()[0::2]
+        else:
+            available_y = case_df.near_y_delta.unique()[0::2]
 
-            available_y = case_df.near_y_delta.unique()
-            if "STE" in pickle_name: 
-                available_y = case_df.near_y_delta.unique()[1::2]
-            elif "z10" in pickle_name:
-                available_y = case_df.near_y_delta.unique()[0::2]
-            else:
-                available_y = case_df.near_y_delta.unique()[0::2]
+        corr_df = DataFrame()
 
-            corr_df = DataFrame()
+        for y1 in [ y for y in available_y if y <= 1 ]:
+            print case,y1,x
 
-            for y1 in available_y:
-                print case,y1,x
+            case_y_1 = case_df[ case_df.near_y_delta == y1 ]\
+                    .sort_values( by = 't' ).reset_index( drop = True )
 
-                case_y_1 = case_df[ case_df.near_y_delta == y1 ]\
-                        .sort_values( by = 't' ).reset_index( drop = True )
+            gamma              = []
+            delta_y            = []
+            delta_y_bl         = []
+            int_gamma_per_freq = []
+            fig, ax = plt.subplots(1, 2, sharex=True, figsize = (15,5))
 
-                gamma              = []
-                delta_y            = []
-                delta_y_bl         = []
-                int_gamma_per_freq = []
-                fig, ax = plt.subplots(1, 2, sharex=True, figsize = (15,5))
+            df_U = df_U.append(
+                DataFrame(
+                    data = {
+                        'u':      case_y_1.u.mean(),
+                        'y':      y1 ,
+                        'marker': ' {0}'.format( marker ),
+                        'case':   case
+                    }, index = [0]
+                ), ignore_index = True
+            )
 
-                df_U = df_U.append(
-                    DataFrame(
-                        data = {
-                            'u':      case_y_1.u.mean(),
-                            'y':      y1 ,
-                            'marker': ' {0}'.format( marker ),
-                            'case':   case
-                        }, index = [0]
-                    ), ignore_index = True
+            for y2 in available_y:
+
+                case_y_2 = case_df[ 
+                    case_df.near_y_delta == y2 
+                ].sort_values( by = 't' ).reset_index( drop = True )
+
+                case_y_2 = case_y_2.fillna( 0 )
+                case_y_1 = case_y_1.fillna( 0 )
+
+                f, gamma_loc = coherence(
+                    case_y_2['v'],
+                    case_y_1['v'],
+                    fs = 10000,
+                    nperseg = 2**7,
                 )
 
-                for y2 in available_y:
+                xcorr = corrcoef( 
+                    case_y_1.v.values, 
+                    case_y_2.v.values )[1,0]
 
-                    case_y_2 = case_df[ 
-                        case_df.near_y_delta == y2 
-                    ].sort_values( by = 't' ).reset_index( drop = True )
+                gamma.append( gamma_loc )
 
-                    case_y_2 = case_y_2.fillna( 0 )
-                    case_y_1 = case_y_1.fillna( 0 )
+                delta_y.append( case_y_2.y.unique()[0] - \
+                               case_y_1.y.unique()[0])
+                delta_y_bl.append( y2 - y1 )
 
-                    f, gamma_loc = coherence(
-                        case_y_2['v'],
-                        case_y_1['v'],
-                        fs = 10000,
-                        nperseg = 2**7,
-                    )
+                y2_real = case_y_2[
+                            case_y_2.near_y_delta == y2
+                        ].y.unique()[0]
+                y1_real = case_y_1[
+                            case_y_1.near_y_delta == y1
+                        ].y.unique()[0]
 
-                    xcorr = corrcoef( 
-                        case_y_1.v.values, 
-                        case_y_2.v.values )[1,0]
+                corr_df = corr_df.append(
+                    DataFrame( data = {
+                        'xcorr':   xcorr,
+                        'y2_bl':   y2,
+                        'y1_bl':   y1,
+                        'y2_real': y2_real,
+                        'y1_real': y1_real,
+                        'delta_y': y2_real - y1_real,
+                        'case':    case
+                    } , index = [0] ), ignore_index = True
+                )
 
-                    gamma.append( gamma_loc )
+            X, Y = meshgrid( f, delta_y_bl )
 
-                    delta_y.append( case_y_2.y.unique()[0] - \
-                                   case_y_1.y.unique()[0])
-                    delta_y_bl.append( y2 - y1 )
+            gamma   = array(gamma)
+            delta_y = array(delta_y)
+            for ix in range(len(f)):
+                int_gamma_per_freq.append( 
+                    simps( gamma.T[ ix ], delta_y )
+                )
 
-                    y2_real = case_y_2[
-                                case_y_2.near_y_delta == y2
-                            ].y.unique()[0]
-                    y1_real = case_y_1[
-                                case_y_1.near_y_delta == y1
-                            ].y.unique()[0]
+            ax[0].contourf( X/1000., Y, gamma )
 
-                    corr_df = corr_df.append(
-                        DataFrame( data = {
-                            'xcorr':   xcorr,
-                            'y2_bl':   y2,
-                            'y1_bl':   y1,
-                            'y2_real': y2_real,
-                            'y1_real': y1_real,
-                            'delta_y': y2_real - y1_real,
-                            'case':    case
-                        } , index = [0] ), ignore_index = True
-                    )
+            ax[1].plot( array(f)/1000., int_gamma_per_freq , 'o')
 
-                X, Y = meshgrid( f, delta_y_bl )
+            ax[0].set_xlabel('$f$ [kHz]')
+            ax[0].set_ylabel(r'$\Delta y$')
+            ax[1].set_xlabel('$f$ [kHz]')
+            ax[1].set_ylim( 0, 4 )
+            ax[1].set_ylabel( r'$\Lambda_{2|22} = \int_0^\delta\sqrt{' + \
+                             '\gamma^2\left('+\
+                             r'\omega,\xi_y\right)}\,\textrm{d}'+\
+                             r'\left( \xi_y \right)$' 
+                            )
 
-                gamma   = array(gamma)
-                delta_y = array(delta_y)
-                for ix in range(len(f)):
-                    int_gamma_per_freq.append( 
-                        simps( gamma.T[ ix ], delta_y )
-                    )
-
-                ax[0].contourf( X/1000., Y, gamma )
-
-                ax[1].plot( array(f)/1000., int_gamma_per_freq , 'o')
-
-                ax[0].set_xlabel('$f$ [kHz]')
-                ax[0].set_ylabel(r'$\Delta y$')
-                ax[1].set_xlabel('$f$ [kHz]')
-                ax[1].set_ylim( 0, 4 )
-                ax[1].set_ylabel( r'$\Lambda_{2|22} = \int_0^\delta\sqrt{' + \
-                                 '\gamma^2\left('+\
-                                 r'\omega,\xi_y\right)}\,\textrm{d}'+\
-                                 r'\left( \xi_y \right)$' 
-                                )
-
-                fig.savefig('test/VCoh_{0}_y{1:.2f}.png'.format( case, y1 ),
-                           bbox_inches = 'tight')
-                plt.close( fig )
-
-            corr_df.to_pickle( 'test/WallNormalCorrelation_Values_{0}'.\
-                              format( case )
-                             )
-
-            corr_df = corr_df.drop( ['y2_real','y1_real','case'] , axis = 1)
-
-            corr_df = corr_df.sort_values( by = [ 'y1_bl', 'y2_bl' ] )
-            
-            corr_pivot = corr_df.pivot( 'y1_bl', 'y2_bl', 'xcorr' )
-
-            X   = corr_pivot.columns.values
-            Y   = corr_pivot.index.values
-            x,y = meshgrid(X, Y)
-            Z   = corr_pivot.values
-
-            fig,ax = plt.subplots(1,1)
-
-            ax.contourf(x, y, Z, levels = arange(0,1.1,0.1) )
-            #sns.heatmap( corr_pivot )
-
-            ax.set_xlabel(r'$y/\delta$')
-            ax.set_ylabel(r'$y/\delta$')
-
-            fig.savefig('test/WallNormalCorrelation_{0}.png'\
-                        .format( case ),
-                        bbox_inches = 'tight'
-                       )
-
-            corr_pivot.to_pickle('test/WallNormalCorrelation_Pivot_{0}.p'\
-                                    .format( case )
-                                   )
+            fig.savefig('test/VCoh_{0}_y{1:.2f}.png'.format( case, y1 ),
+                       bbox_inches = 'tight')
             plt.close( fig )
 
+        corr_df.to_pickle( 'test/WallNormalCorrelation_Values_{0}.p'.\
+                          format( case )
+                         )
+
+        corr_df = corr_df.drop( ['y2_real','y1_real','case'] , axis = 1)
+
+        corr_df = corr_df.sort_values( by = [ 'y1_bl', 'y2_bl' ] )
+        
+        corr_pivot = corr_df.pivot( 'y1_bl', 'y2_bl', 'xcorr' )
+
+        X   = corr_pivot.columns.values
+        Y   = corr_pivot.index.values
+        x,y = meshgrid(X, Y)
+        Z   = corr_pivot.values
+
+        fig,ax = plt.subplots(1,1)
+
+        ax.contourf(x, y, Z, levels = arange(0,1.1,0.1) )
+        #sns.heatmap( corr_pivot )
+
+        ax.set_xlabel(r'$y/\delta$')
+        ax.set_ylabel(r'$y/\delta$')
+
+        fig.savefig('test/WallNormalCorrelation_{0}.png'\
+                    .format( case ),
+                    bbox_inches = 'tight'
+                   )
+
+        corr_pivot.to_pickle('test/WallNormalCorrelation_Pivot_{0}.p'\
+                                .format( case )
+                               )
+        plt.close( fig )
+
     df_U.to_pickle( 'test/Um.p' )
+
+def get_streamwise_length_scale_and_ke( root = 0 ):
+    from pandas          import read_pickle, DataFrame
+    from os              import listdir
+    from os.path         import join
+    from scipy.integrate import simps
+    from matplotlib      import rc
+    from scipy.special   import gamma as gamma_func
+    from math            import pi, sqrt
+    import matplotlib.pyplot as plt
+
+    rc('text',usetex=True)
+
+    rc('font',
+       family = 'serif',
+       serif  = 'Linux Libertine',
+       size   = 30,
+       weight = 'normal'
+      )
+
+    if not root:
+        root = 'test'
+
+    corr_pickles = [ f for f in listdir( root )\
+                    if f.startswith( 'StreamwiseCorrelation_Values' )
+                    and f.endswith( '.p' )
+                    and not "STE" in f
+                   ]
+
+    fig, ax = plt.subplots(1, 2, figsize=(10,5), sharey = True )
+
+    length_scale_df = DataFrame()
+    for c in corr_pickles:
+        corr_df = read_pickle( join( root, c ) )
+
+        case_name = c\
+                .replace('StreamwiseCorrelation_Values','')\
+                .replace('.p','')
+        color, marker, cmap = get_color_and_marker( 
+            case_name
+        )
+        plot_config = {
+            'marker'          : marker,
+            'markeredgewidth' : markeredgewidth,
+            'markerfacecolor' : markerfacecolor,
+            'markeredgecolor' : color,
+            'markersize'      : markersize,
+            'mew'             : mew,
+            'color'           : color,
+        }
+
+
+        for y in corr_df.y_real.unique():
+
+            corr_df_y = corr_df[ corr_df.y_real == y ]
+
+            length_scale = simps(
+                corr_df_y.xcorr,
+                corr_df_y.delta_x
+            )
+
+            ke = sqrt( pi ) * gamma_func( 5. / 6. ) / \
+                    ( length_scale / 1000. * gamma_func( 1. / 3. ) )
+
+            length_scale_df = length_scale_df.append(
+                DataFrame( data = {
+                    'case': case_name,
+                    'y':    y,
+                    'ls':   length_scale,
+                    'ke':   ke
+                }, index = [0] ), ignore_index = True
+            )
+
+            ax[0].plot(
+                length_scale,
+                corr_df_y.y_bl.unique()[0],
+                **plot_config
+            )
+
+            ax[1].plot(
+                ke,
+                corr_df_y.y_bl.unique()[0],
+                **plot_config
+            )
+
+    ax[0].set_ylim(0, 1)
+    ax[0].set_xlim(left=0)
+    ax[0].set_xlabel( r'$\Lambda_{1|11}$ [m]$\times10^{-3}$' )
+    ax[0].set_ylabel( r'$y/\delta$' )
+    ax[1].set_xlabel( r'$k_e$ [1/m]' )
+    fig.savefig("test/StreamwiseLengthScales.png", bbox_inches = 'tight' )
+
+    length_scale_df.to_pickle( 'test/StreamwiseLengthScales.p' )
+
 
 def get_vertical_length_scale( root = 0 ):
     from pandas          import read_pickle, DataFrame
     from os              import listdir
     from os.path         import join
     from scipy.integrate import simps
+    from matplotlib      import rc
     import matplotlib.pyplot as plt
+
+    rc('text',usetex=True)
+
+    rc('font',
+       family = 'serif',
+       serif  = 'Linux Libertine',
+       size   = 30,
+       weight = 'normal'
+      )
 
     if not root:
         root = 'test'
 
     corr_pickles = [ f for f in listdir( root )\
                     if f.startswith( 'WallNormalCorrelation_Values' )
-                    #and f.endswith( '.p' )
+                    and f.endswith( '.p' )
                     and not "STE" in f
                    ]
 
-    fig, ax = plt.subplots( 1, 1 )
+    fig = plt.figure(figsize=(5,5))
 
     length_scale_df = DataFrame()
     for c in corr_pickles:
@@ -657,6 +777,16 @@ def get_vertical_length_scale( root = 0 ):
         color, marker, cmap = get_color_and_marker( 
             c
         )
+        plot_config = {
+            'marker'          : marker,
+            'markeredgewidth' : markeredgewidth,
+            'markerfacecolor' : markerfacecolor,
+            'markeredgecolor' : color,
+            'markersize'      : markersize,
+            'mew'             : mew,
+            'color'           : color,
+        }
+
 
         for y in corr_df.y1_real.unique():
 
@@ -675,15 +805,16 @@ def get_vertical_length_scale( root = 0 ):
                 }, index = [0] ), ignore_index = True
             )
 
-            ax.plot(
+            plt.plot(
                 length_scale,
                 corr_df_y.y1_bl.unique()[0],
-                marker,
-                c = color
+                **plot_config
             )
 
-    ax.set_xlabel( r'$\Lambda_{2|22}$' )
-    ax.set_ylabel( r'$y/\delta$' )
+    plt.ylim(0, 1)
+    plt.xlim(left=0)
+    plt.xlabel( r'$\Lambda_{2|22}$' )
+    plt.ylabel( r'$y/\delta$' )
     fig.savefig("test/VerticalLengthScales.png", bbox_inches = 'tight' )
 
     length_scale_df.to_pickle( 'test/VerticalLengthScales.p' )

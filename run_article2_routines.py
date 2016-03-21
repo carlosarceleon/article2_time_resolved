@@ -263,6 +263,8 @@ def do_the_time_resolved_analysis():
     schematic_TE = '/home/carlos/Documents/PhD/Articles/Article_2/'+\
             'Figures/measurement_locations_TE_m2_with_edge_normal.png'
 
+    #do_the_frequency_plot( TE_cases, 'TE',  schematic = schematic_TE)
+
     schematic_x0 = '/home/carlos/Documents/PhD/Articles/Article_2/'+\
             'Figures/measurement_locations_x0_m2.png'
 
@@ -286,52 +288,56 @@ def do_the_time_resolved_analysis():
 def correlation_coherence_and_length_scale_analysis():
     import article2_data_analysis_routines as dar
 
-    def do_the_vertical_coherence_analysis( df ):
+    def do_the_vertical_coherence_analysis( hdf ):
 
-        dar.plot_vertical_coherence( df )
+        dar.plot_vertical_coherence( hdf )
 
-    def do_the_streamwise_coherence_analysis( pickle ):
+    def do_the_streamwise_coherence_analysis( hdf , overwrite = False ):
 
-        dar.plot_streamwise_f_coherence( pickle )
+        dar.plot_streamwise_f_coherence( hdf, overwrite = overwrite )
 
 
 
-    #do_the_frequency_plot( TE_cases, 'TE',  schematic = schematic_TE)
     #do_the_streamwise_coherence_analysis( 
     #    '/home/carlos/Documents/PhD/Articles/Article_3/Scripts/' + \
-    #    'time_resolved/ReservedData/Sr20R21_a0_p0_U20_z05_tr.p',
-    #    'TE' )
+    #    'time_resolved/ReservedData/Sr20R21_a0_p0_U20_z05_tr.hdf5',
+    #    overwrite = True
+    #    )
     #do_the_streamwise_coherence_analysis( 
     #    '/home/carlos/Documents/PhD/Articles/Article_3/Scripts/' + \
-    #    'time_resolved/ReservedData/Sr20R21_a0_p0_U20_z00_tr.p',
-    #    'TE' )
+    #    'time_resolved/ReservedData/Sr20R21_a0_p0_U20_z00_tr.hdf5',
+    #    overwrite = True
+    #    )
     #do_the_streamwise_coherence_analysis( 
     #    '/home/carlos/Documents/PhD/Articles/Article_3/Scripts/' + \
-    #    'time_resolved/ReservedData/Sr20R21_a0_p0_U20_z10_tr.p',
-    #    'TE' )
+    #    'time_resolved/ReservedData/Sr20R21_a0_p0_U20_z10_tr.hdf5',
+    #    overwrite = True
+    #    )
     #do_the_streamwise_coherence_analysis( 
     #    '/home/carlos/Documents/PhD/Articles/Article_3/Scripts/' + \
-    #    'time_resolved/ReservedData/STE_a0_p0_U20_z00_tr.p',
-    #    'TE' )
+    #    'time_resolved/ReservedData/STE_a0_p0_U20_z00_tr.hdf5',
+    #    overwrite = True
+    #    )
 
     #do_the_vertical_coherence_analysis(
     #    [
     #        '/home/carlos/Documents/PhD/Articles/Article_3/Scripts/' + \
-    #        'time_resolved/ReservedData/STE_a0_p0_U20_z00_tr.p',
+    #        'time_resolved/ReservedData/STE_a0_p0_U20_z00_tr.hdf5',
 
     #        '/home/carlos/Documents/PhD/Articles/Article_3/Scripts/' + \
-    #        'time_resolved/ReservedData/Sr20R21_a0_p0_U20_z00_tr.p',
+    #        'time_resolved/ReservedData/Sr20R21_a0_p0_U20_z00_tr.hdf5',
 
     #        '/home/carlos/Documents/PhD/Articles/Article_3/Scripts/' + \
-    #        'time_resolved/ReservedData/Sr20R21_a0_p0_U20_z05_tr.p',
+    #        'time_resolved/ReservedData/Sr20R21_a0_p0_U20_z05_tr.hdf5',
 
     #        '/home/carlos/Documents/PhD/Articles/Article_3/Scripts/' + \
-    #        'time_resolved/ReservedData/Sr20R21_a0_p0_U20_z10_tr.p',
+    #        'time_resolved/ReservedData/Sr20R21_a0_p0_U20_z10_tr.hdf5',
 
     #    ]
     #    )
 
-    dar.get_vertical_length_scale()
+    #dar.get_vertical_length_scale()
+    dar.get_streamwise_length_scale_and_ke()
 
 
 from os.path import join
