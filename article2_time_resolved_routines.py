@@ -20,7 +20,7 @@ def get_bl_parameters(
         z_loc = 0.5
     # X location ###############################################################
 
-    if x_loc <= -1:
+    if x_loc <= -0.5:
         x_loc = -1
     elif x_loc > 0 and x_loc <= 6:
         x_loc = 3
@@ -35,6 +35,7 @@ def get_bl_parameters(
     else:
         print " Didn't find a corresponding point for:"
         print "\tx: {0}".format(x_loc)
+        print bl_data[bl_data.Trailing_edge == device ]
 
     bl_case_data = bl_data[
         ( bl_data.z_loc         == z_loc   ) &\

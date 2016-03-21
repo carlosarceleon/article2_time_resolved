@@ -4,6 +4,7 @@ def get_relevant_wall_normal_data_from_pandas_hdf(exceptions = []):
     import article2_time_resolved_routines as trr
     import case_dict_overall_correction as cdoc
     from os.path import join
+    from numpy import arange
 
     root = '/media/carlos/6E34D2CD34D29783/2015-02_SerrationPIV/'\
             +'TR_Data_Location_Calibrated'
@@ -20,10 +21,16 @@ def get_relevant_wall_normal_data_from_pandas_hdf(exceptions = []):
                     skip = True
 
         if not skip:
-            x_locs = [float(f) for f in case[1].x_loc.split(',')]
+            #x_locs = [float(f) for f in case[1].x_loc.split(',')]
+            if 'z00' in case_file and 'Sr' in case_file:
+                x_locs = arange( 36, 40.2, 0.2 )
+            elif 'z05' in case_file and 'Sr' in case_file:
+                x_locs = arange( 16, 20.2, 0.2 )
+            elif 'z10' in case_file or 'STE' in case_file:
+                x_locs = arange( -5, -0.8, 0.2 )
 
             trr.wall_normal_data_to_reserved_pickles_from_pandas_hdf( 
-                join(root, case_file), x_locs , overwrite = False, append = False
+                join(root, case_file), x_locs , overwrite = False, append = True
             )
 
 def get_available_cases_df():
@@ -187,27 +194,27 @@ def do_the_time_resolved_analysis():
     #]
     TE_cases = \
         all_cases_pickle[ 
-            (all_cases_pickle.near_x == -1) & \
+            #(all_cases_pickle.near_x == -1) & \
             (all_cases_pickle.case_name == \
              'Sr20R21_a0_p0_U20_z10_tr')
         ]
     TE_cases = TE_cases.append(
         all_cases_pickle[ 
-            (all_cases_pickle.near_x == 20) & \
+            #(all_cases_pickle.near_x == 20) & \
             (all_cases_pickle.case_name == \
              'Sr20R21_a0_p0_U20_z05_tr_New')
         ], ignore_index = True
     )
     TE_cases = TE_cases.append(
         all_cases_pickle[ 
-            (all_cases_pickle.near_x == 40) & \
+            #(all_cases_pickle.near_x == 40) & \
             (all_cases_pickle.case_name == \
              'Sr20R21_a0_p0_U20_z00_tr')
         ], ignore_index = True
     )
     TE_cases = TE_cases.append(
         all_cases_pickle[ 
-            (all_cases_pickle.near_x == -1) & \
+            #(all_cases_pickle.near_x == -1) & \
             (all_cases_pickle.case_name == \
              'STE_a0_p0_U20_z00_tr')
         ], ignore_index = True
@@ -260,23 +267,72 @@ def do_the_time_resolved_analysis():
             'Figures/measurement_locations_x0_m2.png'
 
 
-    do_the_frequency_plot( TE_cases, 'TE',  schematic = schematic_TE)
-
     schematic_TE = '/home/carlos/Documents/PhD/Articles/Article_2/'+\
             'Figures/measurement_locations_TE_m2_noSTE.png'
 
-    TE_cases = TE_cases[ TE_cases.case_name != 'STE_a0_p0_U20_z00_tr' ]
+    #TE_cases = TE_cases[ TE_cases.case_name != 'STE_a0_p0_U20_z00_tr' ]
 
-    do_the_Reynolds_quadrant_analysis( TE_cases, 'TE' )
+    #do_the_Reynolds_quadrant_analysis( TE_cases, 'TE' )
 
-    do_the_coherence_analysis( TE_cases_upstream, TE_cases, 'TE' , 
-                              schematic = schematic_TE)
+    #do_the_coherence_analysis( TE_cases_upstream, TE_cases, 'TE' , 
+    #                          schematic = schematic_TE)
     #dar.plot_mean_and_std( TE_cases )
 
     #do_the_frequency_plot( x0_cases, 'x0', schematic = schematic_x0 )
     #do_the_Reynolds_quadrant_analysis( x0_cases, 'x0' )
     #do_the_coherence_analysis( x0_coherence_cases , "x0",
     #                         schematic = schematic_x0)
+
+def correlation_coherence_and_length_scale_analysis():
+    import article2_data_analysis_routines as dar
+
+    def do_the_vertical_coherence_analysis( df ):
+
+        dar.plot_vertical_coherence( df )
+
+    def do_the_streamwise_coherence_analysis( pickle ):
+
+        dar.plot_streamwise_f_coherence( pickle )
+
+
+
+    #do_the_frequency_plot( TE_cases, 'TE',  schematic = schematic_TE)
+    #do_the_streamwise_coherence_analysis( 
+    #    '/home/carlos/Documents/PhD/Articles/Article_3/Scripts/' + \
+    #    'time_resolved/ReservedData/Sr20R21_a0_p0_U20_z05_tr.p',
+    #    'TE' )
+    #do_the_streamwise_coherence_analysis( 
+    #    '/home/carlos/Documents/PhD/Articles/Article_3/Scripts/' + \
+    #    'time_resolved/ReservedData/Sr20R21_a0_p0_U20_z00_tr.p',
+    #    'TE' )
+    #do_the_streamwise_coherence_analysis( 
+    #    '/home/carlos/Documents/PhD/Articles/Article_3/Scripts/' + \
+    #    'time_resolved/ReservedData/Sr20R21_a0_p0_U20_z10_tr.p',
+    #    'TE' )
+    #do_the_streamwise_coherence_analysis( 
+    #    '/home/carlos/Documents/PhD/Articles/Article_3/Scripts/' + \
+    #    'time_resolved/ReservedData/STE_a0_p0_U20_z00_tr.p',
+    #    'TE' )
+
+    #do_the_vertical_coherence_analysis(
+    #    [
+    #        '/home/carlos/Documents/PhD/Articles/Article_3/Scripts/' + \
+    #        'time_resolved/ReservedData/STE_a0_p0_U20_z00_tr.p',
+
+    #        '/home/carlos/Documents/PhD/Articles/Article_3/Scripts/' + \
+    #        'time_resolved/ReservedData/Sr20R21_a0_p0_U20_z00_tr.p',
+
+    #        '/home/carlos/Documents/PhD/Articles/Article_3/Scripts/' + \
+    #        'time_resolved/ReservedData/Sr20R21_a0_p0_U20_z05_tr.p',
+
+    #        '/home/carlos/Documents/PhD/Articles/Article_3/Scripts/' + \
+    #        'time_resolved/ReservedData/Sr20R21_a0_p0_U20_z10_tr.p',
+
+    #    ]
+    #    )
+
+    dar.get_vertical_length_scale()
+
 
 from os.path import join
 import publish
@@ -287,5 +343,6 @@ root = join('/home/carlos/Documents/PhD/Articles/Article_2',
 #get_relevant_wall_normal_data_from_pandas_hdf(exceptions = ['STE'])
 #get_relevant_wall_normal_data_from_pandas_hdf()
 #get_relevant_wall_normal_data_from_pandas_hdf(exceptions = ['z05','STE','z00'])
-do_the_time_resolved_analysis()
-publish.publish()
+#do_the_time_resolved_analysis()
+correlation_coherence_and_length_scale_analysis()
+#publish.publish()
