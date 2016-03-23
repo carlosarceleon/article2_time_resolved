@@ -288,13 +288,13 @@ def do_the_time_resolved_analysis():
 def correlation_coherence_and_length_scale_analysis():
     import article2_data_analysis_routines as dar
 
-    def do_the_vertical_coherence_analysis( hdf ):
+    def do_the_vertical_coherence_analysis( hdf , plot_individual = False):
 
-        dar.plot_vertical_coherence( hdf )
+        dar.plot_vertical_coherence( hdf , plot_individual = plot_individual )
 
     def do_the_streamwise_coherence_analysis( hdf , overwrite = False ):
 
-        dar.plot_streamwise_f_coherence( hdf, overwrite = overwrite )
+        dar.get_streamwise_coherence( hdf, overwrite = overwrite )
 
 
 
@@ -319,10 +319,23 @@ def correlation_coherence_and_length_scale_analysis():
     #    overwrite = True
     #    )
 
+    dar.plot_streamwise_correlation_from_pickle( 
+        'test/StreamwiseCorrelation_Values_STE_a0_p0_U20_z00_tr.p' 
+    )
+    dar.plot_streamwise_correlation_from_pickle( 
+        'test/StreamwiseCorrelation_Values_Sr20R21_a0_p0_U20_z00_tr.p' 
+    )
+    dar.plot_streamwise_correlation_from_pickle( 
+        'test/StreamwiseCorrelation_Values_Sr20R21_a0_p0_U20_z05_tr.p' 
+    )
+    dar.plot_streamwise_correlation_from_pickle( 
+        'test/StreamwiseCorrelation_Values_Sr20R21_a0_p0_U20_z10_tr.p' 
+    )
+
     #do_the_vertical_coherence_analysis(
     #    [
-    #        '/home/carlos/Documents/PhD/Articles/Article_3/Scripts/' + \
-    #        'time_resolved/ReservedData/STE_a0_p0_U20_z00_tr.hdf5',
+    #        #'/home/carlos/Documents/PhD/Articles/Article_3/Scripts/' + \
+    #        #'time_resolved/ReservedData/STE_a0_p0_U20_z00_tr.hdf5',
 
     #        '/home/carlos/Documents/PhD/Articles/Article_3/Scripts/' + \
     #        'time_resolved/ReservedData/Sr20R21_a0_p0_U20_z00_tr.hdf5',
@@ -333,7 +346,8 @@ def correlation_coherence_and_length_scale_analysis():
     #        '/home/carlos/Documents/PhD/Articles/Article_3/Scripts/' + \
     #        'time_resolved/ReservedData/Sr20R21_a0_p0_U20_z10_tr.hdf5',
 
-    #    ]
+    #    ],
+    #    plot_individual = False
     #    )
 
     #dar.get_vertical_length_scale()

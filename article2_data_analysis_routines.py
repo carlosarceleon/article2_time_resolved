@@ -275,190 +275,184 @@ def do_the_coherence_analysis(df_upstream, df_downstream):
 
     return coherence_df
 
-def plot_streamwise_f_coherence( hdf_name, overwrite = False ):
+def sort_coordinates_by_height( coord_df , plot = False):
+    from copy import copy
     import matplotlib.pyplot as plt
-    import seaborn as sns
-    from matplotlib                      import rc
-    from numpy                           import meshgrid, array, mean, sqrt, dot
-    from numpy                           import corrcoef
-    from scipy.integrate                 import simps
-    from article2_time_resolved_routines import find_nearest
-    from pandas                          import read_hdf, DataFrame, read_pickle
-    from pandas                          import ewma
-    from os.path                         import split, isfile
-    from scipy.special                   import gamma as gamma_func
-    from math                            import pi
-    from progressbar                     import ProgressBar,Percentage
-    from progressbar                     import Bar,ETA,SimpleProgress
+    from matplotlib.pyplot import cm
+    from numpy import linspace
+
+    coord_df[ 'height_ix' ] = 0
+    coord_df[ 'stream_ix' ] = 0
+    height_cnt = 0
+    stream_cnt = 0
+    for y in sorted( coord_df.y.values ):
+        if y == coord_df.y.min():
+            x = coord_df[ coord_df.y == y ].x.values[0]
+        else:
+            for xnew in sorted( coord_df[ coord_df.y == y ].x.values ):
+                if abs( xnew - x ) > 1:
+                    height_cnt += 1
+                    stream_cnt  = 0
+                else:
+                    stream_cnt += 1
+
+                x = copy( xnew )
+
+                coord_df.loc[ 
+                    ( coord_df.y == y ) & ( coord_df.x == x) , 
+                    'height_ix' 
+                ] = height_cnt
+
+                coord_df.loc[ 
+                    ( coord_df.y == y ) & ( coord_df.x == x) , 
+                    'stream_ix' 
+                ] = stream_cnt
+                
+
+
+    if plot:
+        height_ixs = coord_df.height_ix.unique()
+        color=cm.flag(linspace(0,1,max(height_ixs)+1))
+        for height_ix, c_ix in zip( height_ixs, range( len( height_ixs ) ) ):
+            plt.scatter(
+                coord_df[ coord_df.height_ix == height_ix ].x,
+                coord_df[ coord_df.height_ix == height_ix ].y,
+                c = color[ c_ix ]
+            )
+        plt.show()
+
+    return coord_df
+
+def get_streamwise_coherence( hdf_name, overwrite = False ):
+    from matplotlib  import rc
+    from numpy       import corrcoef, sqrt
+    from pandas      import read_hdf, DataFrame
+    from os.path     import split
+    from progressbar import ProgressBar,Percentage
+    from progressbar import Bar,ETA,SimpleProgress
 
     rc('text',usetex=True)
     rc('font',weight='normal')
 
-    sns.set_context('paper')
-    sns.set(font='serif',font_scale=3.0,style='ticks')
     rc('font',family='serif', serif='Linux Libertine')
 
     case_coords = read_hdf( hdf_name , where = ( 't=0' ),
-                          columns = [ 'near_x_2h', 'near_y_delta' ]
+                          columns = [ 'x', 'y' , 'near_x_2h', 'near_y_delta'],
                           )
 
     case = split( hdf_name )[1].replace('.hdf5','')
-    fig, ax = plt.subplots(1, 1, sharex = True)
 
-    if isfile( 'test/StreamwiseCorrelation_{0}.p'\
-                            .format( case )
-             ) and not overwrite:
-        corr_pivot = read_pickle( 'test/StreamwiseCorrelation_{0}.p'\
-                            .format( case )
-                                )
+    case_coords = case_coords.sort_values( 
+        by = [ 'y', 'x' ] 
+    )
 
-    else:
-        available_x = sorted( case_coords.near_x_2h.unique() )
+    case_coords = sort_coordinates_by_height( case_coords )
 
-        if len(available_x) < 2:
-            return 0
+    print case
 
-        x1 = available_x[-1]
+    cnt = 0
+    progress = ProgressBar(
+         widgets=[
+             Bar(),' ',
+             Percentage(),' ',
+             ETA(), ' ( streamwise location ',
+             SimpleProgress(),' )'], 
+         maxval= len( case_coords ) 
+         ).start()
 
-        print case, x1
+    corr_df = DataFrame()
 
-        y_locs  = []
-        #gamma_y = []
-        corr_df = DataFrame()
+    for height_ix in case_coords.height_ix.unique():
 
-        case_x_1_y = read_hdf(hdf_name, 
-                            where = ( 
-                                'near_x_2h = {0} '\
-                                .format( x1 ) ),
-                            columns = ['near_y_delta']
-                           )
+        avaiable_xy = case_coords[ 
+            case_coords.height_ix == height_ix 
+        ][ ['x','y', 'near_x_2h', 'near_y_delta' , 'stream_ix'] ]
 
-        y_to_process = case_x_1_y.near_y_delta.unique()
+        ref_coord = avaiable_xy[ avaiable_xy.x == avaiable_xy.x.max() ]
 
-        progress = ProgressBar(
-             widgets=[
-                 Bar(),' ',
-                 Percentage(),' ',
-                 ETA(), ' ( wall-normal location ',
-                 SimpleProgress(),')'], 
-             maxval=len(y_to_process)
-             ).start()
-
-
-        cnt = 0
-        for y in y_to_process:
-
-            case_x_1 = read_hdf(hdf_name, 
-                                where = ( 
-                                    'near_x_2h = {0} & near_y_delta = {1}'\
-                                    .format( x1 , y ) )
-                              )
-
-
-            xcorr      = []
-            delta_x    = []
-            delta_x_2h = []
-
-            for x2 in available_x:
-
-                case_x_2 = read_hdf(hdf_name, 
-                                   where = ( 
-                                       'near_x_2h = {0} & near_y_delta = {1}'\
-                                       .format( x2 , y ) )
-                                  )
-
-                if case_x_2.empty:
-                    break
-
-                case_x_2_y = case_x_2[
-                    case_x_2.near_y_delta == \
-                    find_nearest( y, case_x_2.near_y_delta.unique() )
-                ].sort_values( by = 't' ).reset_index( drop = True )
-
-                case_x_1_y = case_x_1[
-                    case_x_1.near_y_delta == \
-                    find_nearest( y, case_x_1.near_y_delta.unique() )
-                ].sort_values( by = 't' ).reset_index( drop = True )
-
-                case_x_2 = case_x_2.fillna( 0 )
-                case_x_1 = case_x_1.fillna( 0 )
-
-                xcorr.append(
-                    corrcoef( case_x_1_y.u, case_x_2_y.u )[1,0]
+        case_x_1 = read_hdf(
+            hdf_name, 
+            where = ( 
+                'near_x_2h = {0} & near_y_delta = {1}'.format( 
+                    ref_coord.near_x_2h.values[0],
+                    ref_coord.near_y_delta.values[0],
                 )
+            ), 
+            columns = [
+                'near_x_2h',
+                'near_y_delta',
+                't',
+                'u',
+                'x',
+                'y'
+            ]
+        )
 
-                x1_real = case_x_1_y[ case_x_1_y.near_x_2h == x1 ].x.unique()[0]
-                x2_real = case_x_2_y[ case_x_2_y.near_x_2h == x2 ].x.unique()[0]
-                delta_x.append( 
-                    x2_real - x1_real
-                )
-                delta_x_2h.append( 
-                    case_x_2_y[ case_x_2_y.near_x_2h == x2 ]\
-                    .near_x_2h.unique()[0] - \
-                    case_x_1_y[ case_x_1_y.near_x_2h == x1 ]\
-                    .near_x_2h.unique()[0]
-                )
+        case_x_1 = case_x_1.fillna( 0 )
+
+        for xcorr_coord in avaiable_xy.iterrows():
+
+            case_x_2 = read_hdf(
+                hdf_name, 
+                where = ( 
+                    'near_x_2h = {0} & near_y_delta = {1}'.format( 
+                        xcorr_coord[1].near_x_2h,
+                        xcorr_coord[1].near_y_delta,
+                    )
+                ), 
+                columns = [
+                    'near_x_2h',
+                    'near_y_delta',
+                    't',
+                    'u',
+                    'x',
+                    'y'
+                ]
+            )
+
+            if case_x_2.empty:
+                continue
+
+            case_x_2 = case_x_2.fillna( 0 )
+
+            xcorr = corrcoef( case_x_1.u, case_x_2.u )[1,0]
+
+            x1_real = case_x_1.x.unique()
+            x2_real = case_x_2.x.unique()
+            y1_real = case_x_1.y.unique()
+            y2_real = case_x_2.y.unique()
+
+            xi = sqrt( (x2_real - x1_real)**2 + (y2_real - y1_real)**2 )
 
             corr_df = corr_df.append(
                 DataFrame( data = {
-                    'xcorr':      xcorr,
-                    'delta_x':    delta_x,
-                    'delta_x_2h': delta_x_2h,
-                    'y_bl':       y,
-                    'y_real':     case_x_1.y.unique()[0],
-                    'x1_real':    x1_real,
-                    'x2_real':    x2_real,
-                } ), ignore_index = True
+                    'xcorr':     xcorr,
+                    'y1_bl':     case_x_1.near_y_delta.unique()[0],
+                    'y2_bl':     case_x_2.near_y_delta.unique()[0],
+                    'y1':        y1_real,
+                    'y2':        y2_real,
+                    'x1':        x1_real,
+                    'x2':        x2_real,
+                    'x1_2h':     case_x_1.near_x_2h.unique()[0],
+                    'x2_2h':     case_x_2.near_x_2h.unique()[0],
+                    'xi':        xi,
+                    'Um1':       case_x_1.u.mean(),
+                    'Um2':       case_x_2.u.mean(),
+                    'height_ix': height_ix,
+                    'stream_ix': xcorr_coord[1].stream_ix
+                } , index = [0] ), ignore_index = True
             )
-
-
-            delta_x = array(delta_x)
-
-            y_locs.append( y )
 
             cnt += 1
             progress.update( cnt )
 
-        progress.finish()
+    progress.finish()
 
-        corr_df.to_pickle( 'test/StreamwiseCorrelation_Values_{0}.p'.\
-                          format( case )
-                         )
+    corr_df.to_pickle( 'test/StreamwiseCorrelation_Values_{0}.p'.\
+                      format( case )
+                     )
 
-        corr_df = corr_df.sort_values( by = [ 'delta_x_2h', 'y_bl' ] )
-
-        for x in corr_df.delta_x_2h.unique():
-            corr_df.loc[
-                corr_df.delta_x_2h == x, 'xcorr'
-            ] = ewma(
-                corr_df[ corr_df.delta_x_2h == x ].xcorr,
-                com = 4
-            )
-
-        corr_pivot = corr_df.pivot( 'y_bl', 'delta_x_2h', 'xcorr' )
-
-
-    X   = corr_pivot.columns.values
-    Y   = corr_pivot.index.values
-    x,y = meshgrid(X, Y)
-    Z   = corr_pivot.values
-
-    plt.contourf(x, y, Z)
-
-    ax.set_xlabel(r'$\xi$')
-    ax.set_ylabel(r'$y/\delta$')
-
-    plt.savefig('test/StreamwiseCorrelation_{0}.png'\
-                .format( case ),
-                bbox_inches = 'tight'
-               )
-    corr_pivot.to_pickle('test/StreamwiseCorrelation_{0}.p'\
-                            .format( case )
-                           )
-    plt.close( fig )
-
-
-def plot_vertical_coherence( hdf_names ):
+def plot_vertical_coherence( hdf_names , plot_individual = True ):
     import matplotlib.pyplot as plt
     import seaborn as sns
     from matplotlib                      import rc
@@ -480,6 +474,7 @@ def plot_vertical_coherence( hdf_names ):
     df_U = DataFrame()
 
     for hdf_name in hdf_names:
+
         case_coords = read_hdf( 
             hdf_name , 
             where = ( 't=0' ),
@@ -528,7 +523,9 @@ def plot_vertical_coherence( hdf_names ):
             delta_y            = []
             delta_y_bl         = []
             int_gamma_per_freq = []
-            fig, ax = plt.subplots(1, 2, sharex=True, figsize = (15,5))
+
+            if plot_individual:
+                fig, ax = plt.subplots(1, 2, sharex=True, figsize = (15,5))
 
             df_U = df_U.append(
                 DataFrame(
@@ -557,9 +554,15 @@ def plot_vertical_coherence( hdf_names ):
                     nperseg = 2**7,
                 )
 
-                xcorr = corrcoef( 
-                    case_y_1.v.values, 
-                    case_y_2.v.values )[1,0]
+                if not len(case_y_1.v) == len(case_y_2.v):
+                    xcorr = 0
+                    print " Different lengths"
+                    print len(case_y_1.v), len(case_y_2.v)
+                elif not case_y_2.v.mean() or not case_y_1.v.mean():
+                    xcorr = 0
+                    print " No velocity"
+                else:
+                    xcorr = corrcoef( case_y_1.v, case_y_2.v )[1,0]
 
                 gamma.append( gamma_loc )
 
@@ -586,32 +589,35 @@ def plot_vertical_coherence( hdf_names ):
                     } , index = [0] ), ignore_index = True
                 )
 
-            X, Y = meshgrid( f, delta_y_bl )
-
             gamma   = array(gamma)
             delta_y = array(delta_y)
+
+
             for ix in range(len(f)):
                 int_gamma_per_freq.append( 
                     simps( gamma.T[ ix ], delta_y )
                 )
 
-            ax[0].contourf( X/1000., Y, gamma )
+            if plot_individual:
+                X, Y = meshgrid( f, delta_y_bl )
 
-            ax[1].plot( array(f)/1000., int_gamma_per_freq , 'o')
+                ax[0].contourf( X/1000., Y, gamma )
 
-            ax[0].set_xlabel('$f$ [kHz]')
-            ax[0].set_ylabel(r'$\Delta y$')
-            ax[1].set_xlabel('$f$ [kHz]')
-            ax[1].set_ylim( 0, 4 )
-            ax[1].set_ylabel( r'$\Lambda_{2|22} = \int_0^\delta\sqrt{' + \
-                             '\gamma^2\left('+\
-                             r'\omega,\xi_y\right)}\,\textrm{d}'+\
-                             r'\left( \xi_y \right)$' 
-                            )
+                ax[1].plot( array(f)/1000., int_gamma_per_freq , 'o')
 
-            fig.savefig('test/VCoh_{0}_y{1:.2f}.png'.format( case, y1 ),
-                       bbox_inches = 'tight')
-            plt.close( fig )
+                ax[0].set_xlabel('$f$ [kHz]')
+                ax[0].set_ylabel(r'$\Delta y$')
+                ax[1].set_xlabel('$f$ [kHz]')
+                ax[1].set_ylim( 0, 4 )
+                ax[1].set_ylabel( r'$\Lambda_{2|22} = \int_0^\delta\sqrt{' + \
+                                 '\gamma^2\left('+\
+                                 r'\omega,\xi_y\right)}\,\textrm{d}'+\
+                                 r'\left( \xi_y \right)$' 
+                                )
+
+                fig.savefig('test/VCoh_{0}_y{1:.2f}.png'.format( case, y1 ),
+                           bbox_inches = 'tight')
+                plt.close( fig )
 
         corr_df.to_pickle( 'test/WallNormalCorrelation_Values_{0}.p'.\
                           format( case )
@@ -631,7 +637,6 @@ def plot_vertical_coherence( hdf_names ):
         fig,ax = plt.subplots(1,1)
 
         ax.contourf(x, y, Z, levels = arange(0,1.1,0.1) )
-        #sns.heatmap( corr_pivot )
 
         ax.set_xlabel(r'$y/\delta$')
         ax.set_ylabel(r'$y/\delta$')
@@ -647,6 +652,42 @@ def plot_vertical_coherence( hdf_names ):
         plt.close( fig )
 
     df_U.to_pickle( 'test/Um.p' )
+
+def plot_streamwise_correlation_from_pickle( pickled_correlation ):
+    import matplotlib.pyplot as plt
+    from pandas import read_pickle
+    from os.path import split
+    from numpy import meshgrid, arange
+
+    df = read_pickle( pickled_correlation )
+    case = split( pickled_correlation )[1].replace('.p','')
+
+    df[ 'near_x_2h' ] = 0
+    for stream_ix in df.stream_ix.unique():
+        df.loc[ df.stream_ix == stream_ix, 'near_x_2h' ] =\
+                df[ df.stream_ix == stream_ix ].x2_2h.mean() - \
+                df[ df.stream_ix == stream_ix ].x1_2h.mean()
+
+    corr_pivot = df.pivot( 'y1_bl', 'near_x_2h', 'xcorr' )
+
+    X   = corr_pivot.columns.values
+    Y   = corr_pivot.index.values
+    x,y = meshgrid(X, Y)
+    Z   = corr_pivot.values
+
+    fig,ax = plt.subplots(1,1)
+
+    ax.contourf(x, y, Z, levels = arange(0,1.1,0.1) )
+
+    ax.set_xlabel(r'$\xi/2h$')
+    ax.set_ylabel(r'$y/\delta$')
+
+    fig.savefig('test/WallNormalCorrelation_{0}.png'\
+                .format( case ),
+                bbox_inches = 'tight'
+               )
+
+    plt.close( fig )
 
 def get_streamwise_length_scale_and_ke( root = 0 ):
     from pandas          import read_pickle, DataFrame
@@ -673,7 +714,7 @@ def get_streamwise_length_scale_and_ke( root = 0 ):
     corr_pickles = [ f for f in listdir( root )\
                     if f.startswith( 'StreamwiseCorrelation_Values' )
                     and f.endswith( '.p' )
-                    and not "STE" in f
+                    #and not "STE" in f
                    ]
 
     fig, ax = plt.subplots(1, 2, figsize=(10,5), sharey = True )
@@ -698,14 +739,19 @@ def get_streamwise_length_scale_and_ke( root = 0 ):
             'color'           : color,
         }
 
+        corr_df = corr_df.sort_values( by = ['height_ix'] )\
+                .reset_index( drop = True )
 
-        for y in corr_df.y_real.unique():
+        for y in corr_df.height_ix.unique():
 
-            corr_df_y = corr_df[ corr_df.y_real == y ]
+            corr_df_y = corr_df[ corr_df.height_ix == y ]
+            corr_df_y = corr_df_y.sort_values( by = 'xi' )\
+                    .reset_index( drop = True )
+            corr_df_y = corr_df_y.dropna()
 
             length_scale = simps(
                 corr_df_y.xcorr,
-                corr_df_y.delta_x
+                corr_df_y.xi
             )
 
             ke = sqrt( pi ) * gamma_func( 5. / 6. ) / \
@@ -722,21 +768,22 @@ def get_streamwise_length_scale_and_ke( root = 0 ):
 
             ax[0].plot(
                 length_scale,
-                corr_df_y.y_bl.unique()[0],
+                corr_df_y.y1_bl.unique()[0],
                 **plot_config
             )
 
             ax[1].plot(
                 ke,
-                corr_df_y.y_bl.unique()[0],
+                corr_df_y.y1_bl.unique()[0],
                 **plot_config
             )
 
     ax[0].set_ylim(0, 1)
-    ax[0].set_xlim(left=0)
+    ax[0].set_xlim(0, 8)
     ax[0].set_xlabel( r'$\Lambda_{1|11}$ [m]$\times10^{-3}$' )
     ax[0].set_ylabel( r'$y/\delta$' )
     ax[1].set_xlabel( r'$k_e$ [1/m]' )
+    ax[1].set_xlim(100, 350)
     fig.savefig("test/StreamwiseLengthScales.png", bbox_inches = 'tight' )
 
     length_scale_df.to_pickle( 'test/StreamwiseLengthScales.p' )
@@ -765,7 +812,7 @@ def get_vertical_length_scale( root = 0 ):
     corr_pickles = [ f for f in listdir( root )\
                     if f.startswith( 'WallNormalCorrelation_Values' )
                     and f.endswith( '.p' )
-                    and not "STE" in f
+                    #and not "STE" in f
                    ]
 
     fig = plt.figure(figsize=(5,5))
@@ -845,6 +892,7 @@ def get_Uc_phi_and_coherence(signal1_df, signal2_df):
        or not signal2_df.w.mean():
         return pd.DataFrame()
 
+    df = pd.DataFrame()
     for var in ['u', 'v','w']:
 
         # Get the perturbations ################################################
