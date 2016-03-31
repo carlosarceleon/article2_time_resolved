@@ -7,7 +7,8 @@ def publish():
 
     plot_directories = [
         #'./SpectrumResults/',
-        './Results/'
+        './Results/',
+        './Results_v2/'
     ]
 
     for pd in plot_directories:

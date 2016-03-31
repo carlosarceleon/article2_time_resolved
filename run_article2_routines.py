@@ -141,15 +141,18 @@ def do_the_time_resolved_analysis():
             )
 
     def do_the_Reynolds_quadrant_analysis(df, plot_name):
+
         for y in df.near_y_delta.unique():
 
-            df_y_cases = df[ df.near_y_delta == y ]
+            if round( y, 2 ) in [0.1, 0.3, 0.6, 0.9]:
 
-            dar.do_the_reynolds_stress_quadrant_analysis(
-                df_y_cases,
-                y_delta = y,
-                plot_name = plot_name,
-            )
+                df_y_cases = df[ df.near_y_delta == y ]
+
+                dar.do_the_reynolds_stress_quadrant_analysis(
+                    df_y_cases,
+                    y_delta = y,
+                    plot_name = plot_name,
+                )
 
     def do_the_coherence_analysis(df_upstream, df_downstream
                                   ,plot_name,schematic = ''):
@@ -176,16 +179,16 @@ def do_the_time_resolved_analysis():
 
     all_cases_pickle = pd.read_pickle( join( root, 'AllPointPickle.p' ) )
 
-    x0_cases = all_cases_pickle[ 
-        all_cases_pickle.near_x == -1 
-    ]
-    x0_coherence_cases = all_cases_pickle[ 
-        (all_cases_pickle.near_x == -3) | (all_cases_pickle.near_x == -1)
-    ]
+    #x0_cases = all_cases_pickle[ 
+    #    all_cases_pickle.near_x == -1 
+    #]
+    #x0_coherence_cases = all_cases_pickle[ 
+    #    (all_cases_pickle.near_x == -3) | (all_cases_pickle.near_x == -1)
+    #]
 
-    x0_coherence_cases = x0_coherence_cases[
-        x0_coherence_cases.case_name != "STE_a0_p0_U20_z00_tr"
-    ]
+    #x0_coherence_cases = x0_coherence_cases[
+    #    x0_coherence_cases.case_name != "STE_a0_p0_U20_z00_tr"
+    #]
 
     # TE locations # ###########################################################
     #TE_cases = all_cases_pickle[ 
@@ -221,40 +224,40 @@ def do_the_time_resolved_analysis():
     )
 
 
-    # upstream locations ######################################################
-    #TE_cases_upstream = all_cases_pickle[ 
-    #    (all_cases_pickle.near_x == -3) & \
-    #    (all_cases_pickle.case_name == 'STE_a0_p0_U20_z00_tr')
-    #]
-    #up_shift = -4
-    up_shift = -2
-    TE_cases_upstream = \
-        all_cases_pickle[ 
-            (all_cases_pickle.near_x == -1 + up_shift) & \
-            (all_cases_pickle.case_name == \
-             'Sr20R21_a0_p0_U20_z10_tr')
-        ]
-    TE_cases_upstream = TE_cases_upstream.append(
-        all_cases_pickle[ 
-            (all_cases_pickle.near_x == 20 + up_shift) & \
-            (all_cases_pickle.case_name == \
-             'Sr20R21_a0_p0_U20_z05_tr_New')
-        ], ignore_index = True
-    )
-    TE_cases_upstream = TE_cases_upstream.append(
-        all_cases_pickle[ 
-            (all_cases_pickle.near_x == 40 + up_shift) & \
-            (all_cases_pickle.case_name == \
-             'Sr20R21_a0_p0_U20_z00_tr')
-        ], ignore_index = True
-    )
-    TE_cases_upstream = TE_cases_upstream.append(
-        all_cases_pickle[ 
-            (all_cases_pickle.near_x == -1 + up_shift) & \
-            (all_cases_pickle.case_name == \
-             'STE_a0_p0_U20_z00_tr')
-        ], ignore_index = True
-    )
+    ## upstream locations ######################################################
+    ##TE_cases_upstream = all_cases_pickle[ 
+    ##    (all_cases_pickle.near_x == -3) & \
+    ##    (all_cases_pickle.case_name == 'STE_a0_p0_U20_z00_tr')
+    ##]
+    ##up_shift = -4
+    #up_shift = -2
+    #TE_cases_upstream = \
+    #    all_cases_pickle[ 
+    #        (all_cases_pickle.near_x == -1 + up_shift) & \
+    #        (all_cases_pickle.case_name == \
+    #         'Sr20R21_a0_p0_U20_z10_tr')
+    #    ]
+    #TE_cases_upstream = TE_cases_upstream.append(
+    #    all_cases_pickle[ 
+    #        (all_cases_pickle.near_x == 20 + up_shift) & \
+    #        (all_cases_pickle.case_name == \
+    #         'Sr20R21_a0_p0_U20_z05_tr_New')
+    #    ], ignore_index = True
+    #)
+    #TE_cases_upstream = TE_cases_upstream.append(
+    #    all_cases_pickle[ 
+    #        (all_cases_pickle.near_x == 40 + up_shift) & \
+    #        (all_cases_pickle.case_name == \
+    #         'Sr20R21_a0_p0_U20_z00_tr')
+    #    ], ignore_index = True
+    #)
+    #TE_cases_upstream = TE_cases_upstream.append(
+    #    all_cases_pickle[ 
+    #        (all_cases_pickle.near_x == -1 + up_shift) & \
+    #        (all_cases_pickle.case_name == \
+    #         'STE_a0_p0_U20_z00_tr')
+    #    ], ignore_index = True
+    #)
 
     #TE_cases          = correct_heights( TE_cases )
     #TE_cases_upstream = correct_heights( TE_cases_upstream )
@@ -274,7 +277,7 @@ def do_the_time_resolved_analysis():
 
     #TE_cases = TE_cases[ TE_cases.case_name != 'STE_a0_p0_U20_z00_tr' ]
 
-    #do_the_Reynolds_quadrant_analysis( TE_cases, 'TE' )
+    do_the_Reynolds_quadrant_analysis( TE_cases, 'TE' )
 
     #do_the_coherence_analysis( TE_cases_upstream, TE_cases, 'TE' , 
     #                          schematic = schematic_TE)
@@ -287,71 +290,87 @@ def do_the_time_resolved_analysis():
 
 def correlation_coherence_and_length_scale_analysis():
     import article2_data_analysis_routines as dar
+    from os.path import join
 
-    def do_the_vertical_coherence_analysis( hdf , plot_individual = False):
+    root = '/home/carlos/Documents/PhD/Articles/Article_2/' + \
+            'Article2_Scripts/time_resolved_scripts/Results_v2'
 
-        dar.plot_vertical_coherence( hdf , plot_individual = plot_individual )
+    source_root = '/home/carlos/Documents/PhD/Articles/Article_3/' + \
+            'Scripts/time_resolved/ReservedData'
 
-    def do_the_streamwise_coherence_analysis( hdf , overwrite = False ):
+    def do_the_vertical_coherence_analysis( 
+        hdfs , 
+        plot_individual = False,
+        overwrite = False
+    ):
 
-        dar.get_streamwise_coherence( hdf, overwrite = overwrite )
+        #dar.get_vertical_correlation( 
+        #    [ join( source_root, h ) for h in hdfs ], 
+        #    root = root,
+        #    plot_individual = plot_individual ,
+        #    overwrite = overwrite
+        #)
 
+        for hdf in hdfs:
+            dar.plot_vertical_correlation_from_pickle( 
+                join( 
+                    root, 
+                    'WallNormalCorrelation_Values_' + hdf.replace( 
+                        '.hdf5', '.p' 
+                    )
+                ),
+                root = root
+            )
 
+        dar.get_vertical_length_scale( root = root )
 
-    #do_the_streamwise_coherence_analysis( 
-    #    '/home/carlos/Documents/PhD/Articles/Article_3/Scripts/' + \
-    #    'time_resolved/ReservedData/Sr20R21_a0_p0_U20_z05_tr.hdf5',
-    #    overwrite = True
-    #    )
-    #do_the_streamwise_coherence_analysis( 
-    #    '/home/carlos/Documents/PhD/Articles/Article_3/Scripts/' + \
-    #    'time_resolved/ReservedData/Sr20R21_a0_p0_U20_z00_tr.hdf5',
-    #    overwrite = True
-    #    )
-    #do_the_streamwise_coherence_analysis( 
-    #    '/home/carlos/Documents/PhD/Articles/Article_3/Scripts/' + \
-    #    'time_resolved/ReservedData/Sr20R21_a0_p0_U20_z10_tr.hdf5',
-    #    overwrite = True
-    #    )
-    #do_the_streamwise_coherence_analysis( 
-    #    '/home/carlos/Documents/PhD/Articles/Article_3/Scripts/' + \
-    #    'time_resolved/ReservedData/STE_a0_p0_U20_z00_tr.hdf5',
-    #    overwrite = True
-    #    )
+    def do_the_streamwise_coherence_analysis( hdfs , overwrite = False ):
 
-    dar.plot_streamwise_correlation_from_pickle( 
-        'test/StreamwiseCorrelation_Values_STE_a0_p0_U20_z00_tr.p' 
-    )
-    dar.plot_streamwise_correlation_from_pickle( 
-        'test/StreamwiseCorrelation_Values_Sr20R21_a0_p0_U20_z00_tr.p' 
-    )
-    dar.plot_streamwise_correlation_from_pickle( 
-        'test/StreamwiseCorrelation_Values_Sr20R21_a0_p0_U20_z05_tr.p' 
-    )
-    dar.plot_streamwise_correlation_from_pickle( 
-        'test/StreamwiseCorrelation_Values_Sr20R21_a0_p0_U20_z10_tr.p' 
+        #for hdf in hdfs:
+        #    dar.get_streamwise_coherence_and_correlation( 
+        #        join( source_root, hdf ), 
+        #        overwrite = overwrite 
+        #    )
+
+        #    dar.plot_streamwise_correlation_from_pickle( 
+        #        'StreamwiseCorrelation_Values_' + hdf.replace( '.hdf5', '.p' )
+        #    )
+
+        #    dar.do_the_streamwise_coherence_analysis(
+        #        'StreamwiseCoherence_Values_' + hdf.replace( '.hdf5', '.p' ),
+        #        overwrite = overwrite
+        #    )
+
+        #dar.get_streamwise_length_scale_and_ke()
+
+        #dar.plot_pickled_Uc( 
+        #    [ 'Uc_data_Values_' + f.replace('.hdf5','.p') for f in hdfs ]
+        #)
+        
+        dar.plot_wavenumber_spectra( 
+            [ join( source_root, h ) for h in hdfs ], 
+            var = 'u'
+        )
+        #dar.plot_phi()
+
+    hdf_list_to_process = [
+        'STE_a0_p0_U20_z00_tr.hdf5',
+        'Sr20R21_a0_p0_U20_z10_tr.hdf5',
+        'Sr20R21_a0_p0_U20_z05_tr.hdf5',
+        'Sr20R21_a0_p0_U20_z00_tr.hdf5',
+    ]
+
+    do_the_streamwise_coherence_analysis( 
+        hdf_list_to_process,
+        overwrite = True
     )
 
     #do_the_vertical_coherence_analysis(
-    #    [
-    #        #'/home/carlos/Documents/PhD/Articles/Article_3/Scripts/' + \
-    #        #'time_resolved/ReservedData/STE_a0_p0_U20_z00_tr.hdf5',
-
-    #        '/home/carlos/Documents/PhD/Articles/Article_3/Scripts/' + \
-    #        'time_resolved/ReservedData/Sr20R21_a0_p0_U20_z00_tr.hdf5',
-
-    #        '/home/carlos/Documents/PhD/Articles/Article_3/Scripts/' + \
-    #        'time_resolved/ReservedData/Sr20R21_a0_p0_U20_z05_tr.hdf5',
-
-    #        '/home/carlos/Documents/PhD/Articles/Article_3/Scripts/' + \
-    #        'time_resolved/ReservedData/Sr20R21_a0_p0_U20_z10_tr.hdf5',
-
-    #    ],
-    #    plot_individual = False
+    #    hdf_list_to_process,
+    #    plot_individual = False,
+    #    overwrite = True
     #    )
 
-    #dar.get_vertical_length_scale()
-    dar.get_streamwise_length_scale_and_ke()
 
 
 from os.path import join
@@ -365,4 +384,4 @@ root = join('/home/carlos/Documents/PhD/Articles/Article_2',
 #get_relevant_wall_normal_data_from_pandas_hdf(exceptions = ['z05','STE','z00'])
 #do_the_time_resolved_analysis()
 correlation_coherence_and_length_scale_analysis()
-#publish.publish()
+publish.publish()

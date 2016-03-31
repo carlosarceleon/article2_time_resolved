@@ -41,34 +41,685 @@ def get_bl_parameters(
 
     return bl_case_data
 
+def return_bl_parameters( case, x_series ):
+    from pandas import read_pickle, DataFrame
+    from scipy.optimize import curve_fit
+
+    def quad_func( x, a , b, c):
+        return a*x**2 + b*x + c
+
+    bl_pickle_file = '/home/carlos/Documents/PhD/Articles/Article_3/' + \
+            'Scripts/time_resolved/BLData.p'
+    bl_df = read_pickle( bl_pickle_file )
+
+    if not case in bl_df.case.unique():
+        print bl_df.case.unique()
+        print case
+
+    if 'z00' in case and not "STE" in case:
+        limits = (0, 43)
+    elif 'z05' in case:
+        limits = (0, 25)
+    else:
+        limits = (-8, 10)
+
+    variables = [ 'Ue', 'delta_99', 'delta_displacement', 
+                'delta_momentum' ]
+
+    bl_param_df = DataFrame()
+
+    for x in x_series:
+        data = {}
+        for var in variables:
+
+            case_df = bl_df[ bl_df.case == case ][ ['x', var] ].dropna()
+
+            try:
+                popt, pvar = curve_fit( 
+                    quad_func, 
+                    case_df[ ( case_df.x <= limits[1] ) & \
+                            ( case_df.x >= limits[0] )].x, 
+                    case_df[ ( case_df.x <= limits[1] ) & \
+                            ( case_df.x >= limits[0] )][var] 
+                )
+            except TypeError:
+                print x, case
+                raise
+
+            data[var] = quad_func( x, popt[0], popt[1], popt[2] ) ,
+
+        bl_param_df = bl_param_df.append(
+            DataFrame( data = data, index = [0] ),
+            ignore_index = False
+        )
+
+    return bl_param_df
+
 def remove_angle_jumps(df):
-    from numpy import sign
     from math import pi
+    from copy import copy
 
-    for var in ['u','v','w']:
-        df['phi_'+var].loc[df['phi_'+var]<0] = \
-                df['phi_'+var].loc[df['phi_'+var]<0] + pi
+    if df.empty:
+        return df
 
-        for ix in range(len(df))[:-2]:
-            dif = df['phi_'+var].ix[ix+1] - df['phi_'+var].ix[ix]
-            if abs(dif) > pi*0.4:
-                df['phi_'+var].ix[ix+1] = df['phi_'+var].ix[ix+1] \
-                        - sign(dif) * pi
+    def remove_large_diff_jumps( df, var ):
 
-        df['phi_'+var].loc[df['phi_'+var]<0] = \
-                df['phi_'+var].loc[df['phi_'+var]<0] + pi
+        df[ 'diff_phi' ] = 0
+        
+        diff_phi = df.ix[ ixs[0] : ixs[-2] ][ var ].values - \
+                df.ix[ ixs[1] : ixs[-1] ][ var ].values
 
-        for ix in range(len(df))[:-2]:
-            dif = df['phi_'+var].ix[ix+1] - df['phi_'+var].ix[ix]
-            if abs(dif) > pi*0.4:
-                df['phi_'+var].ix[ix+1] = df['phi_'+var].ix[ix+1] \
-                        - sign(dif) * pi
+        df['diff_phi'].ix[ : ixs[-2]] = copy( diff_phi )
 
-        #df['phi_'+var].loc[df['f_'+var] == df['f_'+var].max()] = \
-        #        df['phi_'+var].loc[df['f_'+var] == df['f_'+var].max()] + pi
+        ix = df[ df.diff_phi > pi ].index
+
+        if len( ix ):
+            df.ix[ ix[0] + 1 : ].phi = df.ix[ ix[0] + 1 : ].phi + 2 * pi
+        
+        df = df.drop( 'diff_phi' , axis = 1)
+
+        return df
+
+    def remove_negative_values( df, var ):
+        df.loc[ 
+            ( df[var] < 0) & ( df.f < 3000 ), var 
+        ] = df[ ( df[var] < 0) & ( df.f < 3000 ) ][ var ] + 2 * pi
+
+        return df
+
+
+
+    variables_with_phi = [v for v in df.columns if 'phi' in v]
+
+    ixs = copy(df.index)
+
+    for var in variables_with_phi:
+
+        df = remove_negative_values( df, var )
+        df = remove_large_diff_jumps( df, var )
+        df = remove_large_diff_jumps( df, var )
+        df = remove_large_diff_jumps( df, var )
+
 
     return df
-def is_outlier(points, thresh=3.5):
+
+def plot_wavenumber_spectra( hdf_cases , root = '', var = 'v'):
+    import matplotlib.pyplot as plt
+    from scipy.signal                    import welch
+    from pandas                          import read_hdf, read_pickle
+    from article2_time_resolved_routines import find_nearest
+    from os.path                         import split, join
+    from numpy                           import log10, arange, array, nan
+    from matplotlib                      import rc
+    from matplotlib.cbook import get_sample_data
+
+    schematic = '/home/carlos/Documents/PhD/Articles/Article_2/'+\
+            'Figures/measurement_locations_TE_m2_wo05.png'
+
+    rc('font',family='serif', serif='Linux Libertine', size=40)
+    rc('text',usetex=True)
+    fontsize = 40
+
+    if not root:
+        root = '/home/carlos/Documents/PhD/Articles/Article_2/' + \
+                'Article2_Scripts/time_resolved_scripts/Results_v2'
+
+    y_locations = array( [ 0.2, 0.4, 0.6, 0.8 ] )
+
+    fig_f, axes_f = plt.subplots( len( y_locations ) , 2 , 
+                             figsize = ( 20, 20 ), sharex = True, sharey = True)
+    fig_k, axes_k = plt.subplots( 2 , 2 , 
+                             figsize = ( 14, 11 ), sharex = True, sharey = True)
+
+    for hdf_name in [ join( root, f ) for f in hdf_cases if not 'z05' in f]:
+
+        if 'z00' in hdf_name and not 'STE' in hdf_name:
+            x_bl_loc = 38
+        elif 'z05' in hdf_name:
+            x_bl_loc = 18
+        elif 'z10' in hdf_name or 'STE' in hdf_name:
+            x_bl_loc = -1
+
+        case = split( hdf_name )[1].replace('.hdf5','')
+
+        case_coords = read_hdf( hdf_name , where = ( 't=0' ),
+                              columns = [ 'x', 'y' , 'near_x_2h', 
+                                         'near_y_delta'],
+                              )
+
+        Uc_df = read_pickle( join( root, 'Uc_Spline_{0}.p'.format( case ) ) )
+
+        print "   Performing the wavenumber spectra analysis of {0}"\
+                .format(case)
+
+        case_coords = case_coords.sort_values( 
+            by = [ 'y', 'x' ] 
+        )
+
+        case_coords = sort_block_coordinates_by_height_and_streamwise( 
+            case_coords 
+        )
+
+        available_x_ix = case_coords[ 
+            case_coords.x == find_nearest( x_bl_loc, case_coords.x.values)
+        ].stream_ix.values[0]
+
+        color, marker, cmap = get_color_and_marker( 
+            case
+        )
+
+        plot_config = {
+            'marker'          : marker,
+            'markeredgewidth' : markeredgewidth*1.5,
+            'markerfacecolor' : markerfacecolor,
+            'markeredgecolor' : color,
+            'markersize'      : markersize*2,
+            'mew'             : mew,
+            'color'           : color,
+            'lw'              : 4
+        }
+
+        for y_req, ix, ax_k in zip( 
+            y_locations[::-1], range( len( y_locations ) ) , axes_k.ravel()
+        ):
+
+            nearest_y_bl = find_nearest( y_req, case_coords[ 
+                case_coords.stream_ix == available_x_ix
+            ].near_y_delta.values )
+
+            Uc = Uc_df[ 
+                Uc_df.y_bl == find_nearest( y_req, Uc_df.y_bl.values ) 
+            ].Uc_spline.values[0]
+
+            ref_coord = case_coords[ 
+                ( case_coords.near_y_delta == nearest_y_bl ) & \
+                ( case_coords.stream_ix == available_x_ix )
+                ]
+
+            case_ts = read_hdf(
+                hdf_name, 
+                where = ( 
+                    'near_x_2h = {0} & near_y_delta = {1}'.format( 
+                        ref_coord.near_x_2h.values[0],
+                        ref_coord.near_y_delta.values[0],
+                    )
+                ), 
+                columns = [
+                    'near_x_2h',
+                    'near_y_delta',
+                    't',
+                    'u',
+                    'v',
+                    'x',
+                    'y'
+                ]
+            ).sort_values( by = 't' ).reset_index( drop = True )
+
+            case_ts[ 'case' ] = case
+
+            case_ts.loc[ 
+                is_outlier( case_ts, 'u', thresh = outlier_thresh) , 'u'
+            ] = nan 
+            case_ts.loc[ 
+                is_outlier( case_ts, 'v', thresh = outlier_thresh) , 'v'
+            ] = nan 
+
+            case_ts[ 'u' ] = case_ts['u'].interpolate( 
+                method='spline', order=3, s=0.
+            )
+            case_ts[ 'v' ] = case_ts['v'].interpolate( 
+                method='spline', order=3, s=0.
+            )
+
+            freq, Pxx_u = welch(
+                x       = case_ts[ 'u' ],
+                nperseg = nperseg,
+                fs      = fs,
+                scaling = 'spectrum',
+            )
+            freq, Pxx_v = welch(
+                x       = case_ts[ 'v' ],
+                nperseg = nperseg,
+                fs      = fs,
+                scaling = 'spectrum',
+            )
+
+            k = freq / Uc
+
+            axes_f[ix][0].plot(
+                freq[:-1]/1000.,
+                10 * log10( Pxx_u )[:-1],
+                **plot_config
+            )
+            axes_f[ix][1].plot(
+                freq[:-1]/1000.,
+                10 * log10( Pxx_v )[:-1],
+                **plot_config
+            )
+
+            ax_k.plot(
+                k[:-1]/100.,
+                k[:-1] * Pxx_v[:-1],#10 * log10( Pxx_v )[:-1],
+                **plot_config
+            )
+
+            kolmogorov_law_curve = get_kolmogorov_law_curve( x_lim = (1, 3) )
+            kolmogorov_law_curve[1] = \
+                    kolmogorov_law_curve[1] + 3
+
+            axes_f[ix][0].plot( 
+                kolmogorov_law_curve[0] , 
+                kolmogorov_law_curve[1] - 7, 
+                '-',
+                color = 'k' ,
+                lw    = 4,
+            )
+            axes_f[ix][1].plot( 
+                kolmogorov_law_curve[0] , 
+                kolmogorov_law_curve[1] - 10, 
+                '-',
+                color = 'k' ,
+                lw    = 4,
+            )
+
+            axes_f[ix][0].set_xlim( 0.2, 5   )
+            axes_f[ix][1].set_xlim( 0.2, 5   )
+            ax_k.set_xlim( 0.1,   3.50 )
+            ax_k.set_xlim( 0.1,   3.50 )
+            axes_f[ix][0].set_xscale('log')
+            axes_f[ix][1].set_xscale('log')
+            ax_k.set_xscale('log')
+            ax_k.set_xscale('log')
+            axes_f[ix][0].tick_params(axis='both', which='major', 
+                                      labelsize=fontsize)
+            axes_f[ix][1].tick_params(axis='both', which='major', 
+                                      labelsize=fontsize)
+            ax_k.tick_params(axis='both', which='major', 
+                                      labelsize=fontsize)
+            ax_k.tick_params(axis='both', which='major', 
+                                      labelsize=fontsize)
+            #axes_f[ix][0].set_ylim( -20, 0 )
+            #axes_f[ix][1].set_ylim( -20, 0 )
+            axes_f[ix][0].set_yticks( arange( -20, 5, 5 ) )
+            axes_f[ix][1].set_yticks( arange( -20, 0, 5 ) )
+            #axes[ix][2].set_yticks( arange( -20, 0, 5 ) )
+            axes_f[ix][0].set_xticks( arange( 1, 6, 1) )
+            axes_f[ix][1].set_xticks( arange( 1, 6, 1) )
+            axes_f[ix][0].set_xticklabels( [0.2,1,2,3,4,5] )
+            axes_f[ix][1].set_xticklabels( [0.2,1,2,3,4,5] )
+            #axes[ix][2].set_xticks( arange( 100, 350, 100 ) )
+            #axes[ix][2].set_xticks( arange( 100, 350, 100 ) )
+
+            axes_f[ix][1].text( 1.8, -5, r'$y/\delta = {0:.2f}$'.format(y_req),
+                             ha = 'left'
+                            )
+            axes_f[ix][0].text( 1.800, -6, r'$f^{-5/3}$',
+                             ha = 'left'
+                            )
+            axes_f[ix][1].text( 1.800, -10, r'$f^{-5/3}$',
+                             ha = 'left'
+                            )
+
+            ax_k.text( 0.11, 9, r'$y/\delta = {0:.2f}$'.format(y_req),
+                             ha = 'left'
+                            )
+
+            ax_k.set_xticks( [ 0.1, 1, 2, 3 ] )
+            ax_k.set_xticklabels( [ 0.1, 1, 2, 3 ] )
+
+
+    #axes_k[0][0].set_ylim( 0, 10 )
+    #axes_k[1][0].set_ylim( 0, 16 )
+    axes_k[0][0].set_ylim( 0, 11 )
+    axes_k[0][0].set_ylabel( r'$k_u \Phi_{vv}(k_u)$' , fontsize = fontsize )
+    axes_k[1][0].set_ylabel( r'$k_u \Phi_{vv}(k_u)$' , fontsize = fontsize )
+
+    axes_f[-1][0].set_xlabel( r'$f$ [kHz]',
+                       fontsize = fontsize )
+    axes_f[-1][1].set_xlabel( r'$f$ [kHz]',
+                       fontsize = fontsize )
+    axes_k[-1][0].set_xlabel( r'$k_u$ [1/m] $\times 10^2$',
+                       fontsize = fontsize )
+    axes_k[-1][1].set_xlabel( r'$k_u$ [1/m] $\times 10^2$',
+                       fontsize = fontsize )
+    axes_f[0][0].set_title( 
+        r"$10\log_{10}\left[\Phi_{uu} \left( f\right)\right]$ [dB]",
+                      fontsize = fontsize )
+    axes_f[0][1].set_title( 
+        r"$10\log_{10}\left[\Phi_{vv} \left( f\right)\right]$ [dB]",
+                      fontsize = fontsize )
+
+    im = plt.imread( get_sample_data( schematic  ) )
+    newax = fig_f.add_axes([0.08, 0.09, 0.14, 0.14], 
+                             anchor = 'SW', zorder=100)
+    newax.imshow(im)
+    newax.axis('off')
+
+    newax = fig_k.add_axes([0.77, 0.18, 0.16, 0.16], 
+                             anchor = 'SE', zorder=100)
+    newax.imshow(im)
+    newax.axis('off')
+
+    fig_f.tight_layout()
+    fig_f.savefig( join( root, 'f_plot.png' ), bbox_inches = 'tight' )
+    fig_k.tight_layout()
+    fig_k.savefig( join( root, 'k_plot.png' ), bbox_inches = 'tight' )
+
+
+
+def plot_pickled_Uc( pickled_Uc_list , root = ''):
+    import matplotlib.pyplot as plt
+    from pandas                          import read_pickle, DataFrame, concat
+    from pandas                          import Series
+    from matplotlib.cbook import get_sample_data
+    from scipy.optimize                  import curve_fit
+    from matplotlib                      import rc
+    from scipy.interpolate               import splprep, splev
+    from numpy                           import linspace, arange
+    from numpy                           import diff as npdiff
+    from article2_time_resolved_routines import find_nearest
+    from os.path                         import join
+    from re                              import findall
+
+    schematic = '/home/carlos/Documents/PhD/Articles/Article_2/'+\
+            'Figures/measurement_locations_TE_m2.png'
+
+    U_mean_df = read_pickle( 'Um.p' )
+
+    rc('font',family='serif', serif='Linux Libertine', size=40)
+    rc('text',usetex=True)
+    fontsize = 35
+
+    if not root:
+        root = '/home/carlos/Documents/PhD/Articles/Article_2/' + \
+                'Article2_Scripts/time_resolved_scripts/Results_v2'
+
+    def log_law( y, y0, alpha ):
+        from numpy import log
+
+        return alpha * log( y / y0 )
+
+
+    fig, axes = plt.subplots(1, len( pickled_Uc_list ), 
+                           sharex = True, sharey = True , figsize = (20, 8) )
+
+    fig_all, ax_all = plt.subplots(1,1,  figsize = (8, 6) )
+    fig_shear, ax_shear = plt.subplots(1,1,  figsize = (8, 6) )
+    fig_v_c, ax_v_c = plt.subplots(1,1,  figsize = (8, 6) )
+
+    for pickled_Uc, ax in zip( pickled_Uc_list, axes ):
+
+        f = pickled_Uc.\
+                replace( 'Uc_data_Values_', '').replace('.p','') 
+
+        if 'z00' in f and not 'STE' in f:
+            x_bl_loc = 38
+        elif 'z05' in f:
+            x_bl_loc = 18
+        elif 'z10' in f or 'STE' in f:
+            x_bl_loc = -2
+
+        color, marker, cmap = get_color_and_marker( 
+            f
+        )
+
+        plot_config = {
+            'marker'          : marker,
+            'markeredgewidth' : markeredgewidth,
+            'markerfacecolor' : markerfacecolor,
+            'markeredgecolor' : color,
+            'markersize'      : markersize*1.5,
+            'mew'             : mew,
+            'color'           : color,
+        }
+
+        bl_parameters = return_bl_parameters( f, [x_bl_loc] )
+
+        Uc_df = read_pickle( join( root, pickled_Uc ) )
+        Um_df = read_pickle( join( root, pickled_Uc.\
+                                  replace( 
+                                      'Uc_data_Values_', 
+                                      'WallNormalCorrelation_Values_'
+                                  ) 
+                                 )
+                           )[ ['Um', 'y1_bl'] ].drop_duplicates()
+
+        Um_df = Um_df.sort_values( by = 'y1_bl' )
+
+        Uc_df = Uc_df[ 
+            ( Uc_df.Uc != 0 ) & ( Uc_df.y_bl < 1. ) & \
+            ( Uc_df.pct_of_series > 25 )
+        ]
+
+        popt, pcov = curve_fit( 
+            log_law, 
+            Uc_df.y_real, 
+            Uc_df.Uc,
+        )
+
+        x_law = log_law( 
+                Uc_df.y_real, popt[0], popt[1] 
+            ) / bl_parameters.Ue.values[0]
+        y_law = Uc_df.y_real / bl_parameters.delta_99.values[0]
+
+        mean_Uc = Uc_df.groupby( Uc_df.y_bl ).Uc.mean().values / \
+                bl_parameters.Ue.values[0] 
+        std_Uc = Uc_df.groupby( Uc_df.y_bl ).Uc.std().values / \
+                bl_parameters.Ue.values[0] 
+
+        y_bl = Uc_df.y_bl.unique() 
+
+        # spline parameters
+        s    = 1.0 # smoothness parameter
+        k    = 5   # spline order
+        nest = -1  # estimate of number of knots needed (-1 = maximal)
+
+        # find the knot points
+        tckp,u = splprep([mean_Uc,y_bl],s=s,k=k,nest=nest)
+
+        # evaluate spline, including interpolated points
+        xnew,ynew = splev(
+            linspace(0,1,400),
+            tckp
+        )
+
+        df_spline = DataFrame(
+            data = {
+                'Uc_spline_normed': xnew,
+                'Uc_spline':        xnew * bl_parameters.Ue.values[0],
+                'y_bl':             ynew,
+            } 
+        )
+
+        df_spline.to_pickle( join( root, 'Uc_Spline_{0}.p'.format( f ) ) )
+
+        if pickled_Uc == pickled_Uc_list[0]:
+            for um, y in zip( x_law, y_law ):
+
+                xd = df_spline[ 
+                    df_spline.y_bl == find_nearest( y, df_spline.y_bl.values ) 
+                ].Uc_spline_normed.values[0]
+                yd = df_spline[ 
+                    df_spline.y_bl == find_nearest( y, df_spline.y_bl.values ) 
+                ].y_bl.values[0]
+
+                diff = um - xd
+
+                ax.annotate(
+                    '',
+                    xy = ( xd - diff * 8 , yd ),
+                    xytext = ( xd, yd ),
+                    horizontalalignment = 'center',
+                    verticalalignment   = 'center',
+                    arrowprops          = dict(
+                        facecolor = 'k',
+                        edgecolor = 'k',
+                        shrink    = 0.2,
+                        width     = 1.0,
+                        headwidth = 8.0,
+                    )
+                )
+
+        ax.plot(
+            mean_Uc,
+            y_bl,
+            ls    = '',
+            zorder = 100,
+            **plot_config
+        )
+        ax_all.plot(
+            mean_Uc,
+            y_bl,
+            ls    = '',
+            zorder = 100,
+            **plot_config
+        )
+
+        ax.fill_betweenx(y_bl, 
+                        mean_Uc - std_Uc,
+                        mean_Uc + std_Uc,
+                        facecolor='gray', 
+                        alpha=0.3,
+                       )
+
+        #ax.plot(
+        #    xnew,
+        #    ynew,
+        #    c = 'k',
+        #    zorder = 800,
+        #    lw = 4
+        #)
+
+        ax.plot(
+            x_law, 
+            y_law,
+            ls = '--',
+            lw     = 7.0,
+            color  = 'w',
+            zorder = 200,
+        )
+
+        ax.plot(
+            log_law( 
+                Uc_df.y_real, popt[0], popt[1] 
+            ) / bl_parameters.Ue.values[0], 
+            Uc_df.y_real / bl_parameters.delta_99.values[0],
+            zorder = 400,
+            ls = '--',
+            lw     = 4.0,
+            color  = 'k'
+        )
+
+        z_loc = findall( 'z[0-9][0-9]',pickled_Uc )[0].replace( 'z', '' )
+        dev = findall( 'S[TER201r]+',pickled_Uc )[0]
+        cols = U_mean_df.columns
+        for col in cols.levels[0]:
+            if z_loc in col and dev in col:
+                ax.plot(
+                    U_mean_df[ col ][ 'u' ],
+                    U_mean_df[ col ][ 'ybl' ],
+                    zorder = 100,
+                    c = 'k',
+                    ls = '-',
+                    lw = 3
+                )
+
+                ax.plot(
+                    U_mean_df[ col ][ 'u' ],
+                    U_mean_df[ col ][ 'ybl' ],
+                    zorder = 50,
+                    c = 'w',
+                    ls = '-',
+                    lw = 6
+                )
+
+                ax_shear.plot(
+                    ( npdiff( U_mean_df[ 
+                        U_mean_df[col]['ybl'] > 0.2 
+                    ][ col ][ 'u_real' ] ) / \
+                    npdiff( U_mean_df[ 
+                        U_mean_df[col]['ybl'] > 0.2 
+                    ][ col ][ 'y_real' ] ) )**2 ,
+                    U_mean_df[ 
+                        U_mean_df[col]['ybl'] > 0.2 
+                    ][ col ][ 'ybl' ][:-1],
+                    ls = '',
+                    **plot_config
+                )
+
+                
+                v_uc_df = concat( [ 
+                    U_mean_df[col][['ybl','v_real']].dropna().set_index('ybl'),
+                    DataFrame( data = { 
+                        'uc':mean_Uc * bl_parameters.Ue.values[0] 
+                    }, index = y_bl )
+                ], axis = 1 )
+
+                v_uc_df = v_uc_df.apply( Series.interpolate ).dropna()
+
+                ax_v_c.plot(
+                    (v_uc_df.v_real / v_uc_df.uc )[::3]**2 * 100,
+                    v_uc_df.index.values[::3],
+                    ls = '',
+                    **plot_config
+                )
+
+        ax.set_xlabel( r'$ u_c / u_e $' , fontsize = fontsize)
+
+        if pickled_Uc == pickled_Uc_list[0]:
+            ax.set_xticks( arange( 0.0, 1.2, 0.2 ) )
+        else:
+            ax.set_xticks( arange( 0, 1.2, 0.2 ) )
+
+        ax.tick_params(axis='both', which='major', labelsize=fontsize)
+        ax.set_ylim( 0 , 1 )
+        ax.set_xlim( 0.4 , 1. )
+
+    ax_all.tick_params(axis='both', which='major', labelsize=fontsize)
+    ax_all.set_xlabel( r'$ u_c / u_e $' , fontsize = fontsize)
+    ax_all.set_ylabel( r'$ y / \delta $' , fontsize = fontsize)
+    ax_all.set_ylim( 0, 1 )
+    ax_all.set_yticks( [0, 0.2, 0.4, 0.6, 0.8, 1] )
+
+    ax_shear.set_xlabel( 
+        r'$ \left[ \partial \overline u / \partial y \right]^2$'\
+        +r'   [$1/\textrm{s}^2$]' , 
+        fontsize = fontsize
+    )
+    ax_shear.set_ylabel( r'$ y / \delta $' , fontsize = fontsize)
+    ax_shear.set_ylim( 0, 1 )
+    ax_shear.set_yticks( [0, 0.2, 0.4, 0.6, 0.8, 1] )
+    ax_shear.tick_params(axis='both', which='major', labelsize=fontsize)
+
+    ax_v_c.set_xlabel( r'$ \left[ \overline v / u_c\right]^2\,\times10^{-2} $', 
+                      fontsize = fontsize)
+    ax_v_c.set_ylabel( r'$ y / \delta $' , fontsize = fontsize)
+    ax_v_c.set_ylim( 0, 1 )
+    ax_v_c.set_xlim( 0, 1.3 )
+    ax_v_c.set_yticks( [0, 0.2, 0.4, 0.6, 0.8, 1] )
+    ax_v_c.tick_params(axis='both', which='major', labelsize=fontsize)
+
+    im = plt.imread( get_sample_data( schematic  ) )
+    newax = fig_all.add_axes([0.2, 0.5, 0.3, 0.3], 
+                             anchor = 'SW', zorder=100)
+    newax.imshow(im)
+    newax.axis('off')
+
+    newax = fig_v_c.add_axes([0.6, 0.15, 0.3, 0.3], 
+                             anchor = 'SW', zorder=100)
+    newax.imshow(im)
+    newax.axis('off')
+
+    axes[0].set_ylabel( r'$ y / \delta $' , fontsize = fontsize)
+    axes[0].text( 0.7, 0.55, r"$\overline u / u_e$", ha = 'right', 
+                 fontsize = fontsize )
+    fig.tight_layout()
+    fig.savefig( join( root, 'Uc.png' )) #, bbox_inches = 'tight' )
+    fig_all.savefig( join( root, 'Uc_all.png' ), bbox_inches = 'tight' )
+    fig_shear.savefig( join( root, 'U_shear.png' ), bbox_inches = 'tight' )
+    fig_v_c.savefig( join( root, 'v_uc.png' ), bbox_inches = 'tight' )
+
+def is_outlier(df, var, thresh=3.5):
     """
     Returns a boolean array with True if points are outliers and False 
     otherwise.
@@ -90,15 +741,40 @@ def is_outlier(points, thresh=3.5):
         Handle Outliers", The ASQC Basic References in Quality Control:
         Statistical Techniques, Edward F. Mykytka, Ph.D., Editor. 
     """
-    import numpy as np
+    from numpy import sum, sqrt
+    from numpy import median as npmedian
+    from pandas import read_pickle, DataFrame
+    from os.path import isfile
+
+    points = df[ var ].values
+
     if len(points.shape) == 1:
         points = points[:,None]
-    median = np.median(points, axis=0)
-    diff = np.sum((points - median)**2, axis=-1)
-    diff = np.sqrt(diff)
-    med_abs_deviation = np.median(diff)
+
+    median            = npmedian(points, axis=0)
+    diff              = sum((points - median)**2, axis=-1)
+    diff              = sqrt(diff)
+    med_abs_deviation = npmedian(diff)
 
     modified_z_score = 0.6745 * diff / med_abs_deviation
+
+    if isfile( 'outliers.p' ):
+        df_outliers = read_pickle( 'outliers.p')
+    else:
+        df_outliers = DataFrame()
+
+    data = {}
+    for col in df.columns:
+        if len( df[ col ].unique() ) == 1:
+            data[ col ] = df[ col ].unique()[0] 
+    data[ 'n_outliers' ] = sum( modified_z_score > thresh )
+    data[ 'n_time_steps' ] = len( df.t.unique() )
+
+    df_outliers = df_outliers.append(
+        DataFrame( data, index = [0] ), ignore_index = True
+    )
+
+    df_outliers.to_pickle( 'outliers.p' )
 
     return modified_z_score > thresh
 
@@ -162,63 +838,36 @@ def calculate_Uc_from_St(df,delta_x):
 
     return Uc_u, Uc_v, df, intercept, slope_u, slope_v
 
-def calculate_Uc(df,delta_x):
-    from math import pi
+def calculate_Uc(df):
+    from math        import pi
     from scipy.stats import linregress
-    import pandas as pd
-    from numpy import nan
 
+    r_value      = 0
+    truncated_df = df[ ['f', 'phi'] ].copy()
+    truncated_df = truncated_df.sort_values( by = [ 'f' ] )
+    truncated_df = truncated_df.reset_index( drop = True )
+    consider     = truncated_df.index[-2]
 
-    for var in ['u','v']:
-        df = df.append(
-            pd.DataFrame( data = {
-                'f_'+var:   0,
-                'phi_'+var: 0
-            }, index = [0]
-            ), ignore_index = True
+    while r_value**2 < 0.97:
+
+        truncated_df = truncated_df.sort_values( by = [ 'f' ] ).\
+                ix[:consider].\
+                reset_index(drop=True)
+
+        slope, intercept, r_value, p_value, std_err = linregress(
+            truncated_df['phi'],
+            truncated_df['f'],
         )
 
-        r_value      = 0
-        truncated_df = df[['f_'+var, 'phi_'+var]].copy()
-        truncated_df = truncated_df[ truncated_df['phi_'+var] != 0 ] 
-        truncated_df = truncated_df.sort_values( by = [ 'f_' + var ] )
-        truncated_df = truncated_df.dropna()
-        truncated_df = truncated_df.reset_index( drop = True )
-        consider     = len(truncated_df)-1
+        consider -= 1
+        if len(truncated_df) < 3:
+            return 0, 0
 
-        while r_value**2 < 0.97:
+    used_pct_of_series = 100 * len( truncated_df ) / len( df )
+    
+    Uc = 2 * pi * slope * df.xi.unique()[0] / 1000.
 
-            truncated_df = truncated_df.sort_values( by = ['f_' + var] ).\
-                    ix[:consider].\
-                    reset_index(drop=True)
-
-            slope, intercept, r_value, p_value, std_err = linregress(
-                truncated_df['phi_'+var],
-                truncated_df['f_'+var],
-            )
-
-            consider -= 1
-            if len(truncated_df) < 3:
-                slope = 0
-                intercept = 0
-                break
-        
-        if var == 'u' and slope:
-            Uc_u = 2*pi*slope*delta_x/1000.
-            slope_u = slope
-            if Uc_u > 25: Uc_u = 0 
-        elif not slope:
-            Uc_u = nan
-            slope_u = nan
-
-        if var == 'v' and slope:
-            Uc_v = 2*pi*slope*delta_x/1000.
-            slope_v = slope
-        elif not slope:
-            Uc_v = nan
-            slope_v = nan
-
-    return Uc_u, Uc_v, df, intercept, slope_u, slope_v
+    return Uc, used_pct_of_series
 
 def do_the_coherence_analysis(df_upstream, df_downstream):
     import pandas as pd
@@ -275,7 +924,7 @@ def do_the_coherence_analysis(df_upstream, df_downstream):
 
     return coherence_df
 
-def sort_coordinates_by_height( coord_df , plot = False):
+def sort_block_coordinates_by_height_and_streamwise( coord_df , plot = False):
     from copy import copy
     import matplotlib.pyplot as plt
     from matplotlib.pyplot import cm
@@ -323,32 +972,244 @@ def sort_coordinates_by_height( coord_df , plot = False):
 
     return coord_df
 
-def get_streamwise_coherence( hdf_name, overwrite = False ):
-    from matplotlib  import rc
-    from numpy       import corrcoef, sqrt
-    from pandas      import read_hdf, DataFrame
-    from os.path     import split
-    from progressbar import ProgressBar,Percentage
-    from progressbar import Bar,ETA,SimpleProgress
+def plot_phi( root = '' ):
+    import matplotlib.pyplot as plt
+    from matplotlib import rc
+    from numpy      import meshgrid, arange, linspace
+    from math       import pi
+    from pandas     import read_pickle
+    from os.path    import join
+    from os         import listdir
+        
+    if not root:
+        root = '/home/carlos/Documents/PhD/Articles/Article_2/' + \
+                'Article2_Scripts/time_resolved_scripts/Results_v2'
+
+    rc('text',usetex=True)
+    rc('font',weight='normal')
+
+    fontsize = 30
+
+    rc('font',family='serif', serif='Linux Libertine')
+
+    phi_pivots = [
+        f for f in listdir( root ) if f.startswith( 'StreamwisePhi' ) and \
+        f.endswith('.p')
+    ]
+    
+    for pivot in phi_pivots:
+
+        coh_df_xi_pivot = read_pickle( join( root, pivot ) )
+
+        case = pivot.replace('.p','')
+
+        X   = coh_df_xi_pivot.columns.values/1000.
+        Y   = coh_df_xi_pivot.index.values
+        x,y = meshgrid(X, Y)
+        Z   = coh_df_xi_pivot.values
+
+        fig_coh, ax_coh = plt.subplots( 1, 2, figsize = ( 13, 4 ) )
+
+        xis = coh_df_xi_pivot.index.values
+        line_color = plt.cm.Oranges( linspace(0, 1, len(xis )) )
+        for xi, c in zip( xis, line_color ):
+            ax_coh[1].plot( 
+                coh_df_xi_pivot.T[ xi ].index.values[:-2]/1000.,
+                coh_df_xi_pivot.T[ xi ].values[:-2]/pi,
+                c = c
+            )
+        ax_coh[1].annotate(
+            ' ',
+            xy                  = (2.000, 4.),
+            xytext              = (3.000, 1/2.),
+            horizontalalignment = 'left',
+            verticalalignment   = 'top',
+            arrowprops          = dict(facecolor='black', shrink=0.025),
+        )
+        ax_coh[1].text(
+            2.400,
+            3.4,
+            r'$\xi_x$',
+            fontsize = fontsize
+        )
+        ax_coh[1].set_xlabel( r'$f$ [kHz]' , fontsize = fontsize)
+        #ax_coh[1].set_ylabel( r'$\phi$ [rad]' , fontsize = fontsize)
+        ax_coh[1].set_yticks( arange(0, 5.5, 1.0)  )
+        ax_coh[1].set_yticklabels( [ "{0:.0f}".format(d) for d in \
+            arange(0, 5.5, 1.0) ]
+        )
+        ax_coh[1].set_ylim( bottom = 0 )
+
+        CS = ax_coh[0].contourf( X, Y, Z/pi, levels = arange(0, 5.5, 0.5) , 
+                        cmap = plt.cm.Blues )
+
+        cbar = plt.colorbar(CS, ax = ax_coh[0], shrink = 1.0)
+
+        cbar.ax.set_ylabel(r'$\phi$ [rad$/ \pi$]', fontsize = fontsize)
+        cbar.ax.tick_params( labelsize = fontsize )
+
+        ax_coh[0].set_xlabel( r'$f$ [kHz]' , fontsize = fontsize)
+        ax_coh[0].set_ylabel( r'$\xi_x$ [m]$\times10^{-3}$' , 
+                             fontsize = fontsize)
+
+        ax_coh[0].tick_params(axis='both', which='major', labelsize=fontsize)
+        ax_coh[1].tick_params(axis='both', which='major', labelsize=fontsize)
+        fig_coh.subplots_adjust( wspace = 0.1 )
+        fig_coh.savefig( 
+            join( root, '{0}.png'\
+                 .format( case ) ),
+            bbox_inches = 'tight' )
+
+def do_the_streamwise_coherence_analysis( pickled_coh_data , root = '', 
+                                         overwrite = False):
+    from pandas                          import read_pickle, DataFrame
+    from os.path                         import split, join, isfile
+    from article2_time_resolved_routines import find_nearest
+    from progressbar                     import ProgressBar,Percentage
+    from progressbar                     import Bar,ETA,SimpleProgress
+
+    if not root:
+        root = '/home/carlos/Documents/PhD/Articles/Article_2/' + \
+                'Article2_Scripts/time_resolved_scripts/Results_v2'
+
+    case = split( pickled_coh_data )[1]\
+            .replace('.p','').replace("StreamwiseCoherence_","") 
+
+    if isfile( 
+        join( root, 'Uc_data_{0}.p'.format( 
+            case.replace("StreamwiseCoherence_","") 
+        ) )
+    ) and not overwrite:
+        return 0
+
+    coh_df = read_pickle( join( root, pickled_coh_data ) )
+    avaiable_y_ix = coh_df.height_ix.unique()
+
+    y_bl_locs_to_plot = [ 0.3, 0.6, 0.9 ]
+
+    y_bl_available = coh_df.y1_bl.unique()
+    y_real_available = coh_df.y1.unique()
+
+    nearest_y_bl_available = [ 
+        find_nearest( n, y_bl_available ) for n in y_bl_locs_to_plot 
+    ]
+
+    y_ix_to_plot = coh_df[ 
+        coh_df.y1_bl.isin( nearest_y_bl_available )
+    ].height_ix.unique()
+
+    Uc_df = DataFrame()
+
+    progress = ProgressBar(
+         widgets=[
+             Bar(),' ',
+             Percentage(),' ',
+             ETA(), ' ( streamwise location ',
+             SimpleProgress(),' )'], 
+         maxval= len( y_bl_available ) 
+         ).start()
+
+    cnt = 0
+    for y_ix, y_bl, y_re in zip( 
+        coh_df.height_ix.unique(), y_bl_available , y_real_available
+    ):
+        # Do a plot of the coherence as a function of xi #######################
+        for xi in coh_df[ coh_df.height_ix == avaiable_y_ix[ y_ix ] ]\
+                  .xi.unique():
+
+            coh_df.loc[ 
+                ( coh_df.height_ix == avaiable_y_ix[ y_ix ] ) & \
+                ( coh_df.xi == xi ), 
+                'phi' ] = remove_angle_jumps( 
+                    coh_df[ 
+                        ( coh_df.height_ix == avaiable_y_ix[ y_ix ] ) & \
+                        ( coh_df.xi == xi )
+                    ]
+                )
+
+            Uc, pct_of_series = calculate_Uc( 
+                coh_df[ 
+                    ( coh_df.height_ix == avaiable_y_ix[ y_ix ] ) & \
+                    ( coh_df.xi == xi )
+                ]
+            )
+
+            Uc_df = Uc_df.append(
+                DataFrame( data = {
+                    'Uc':            Uc,
+                    'pct_of_series': pct_of_series,
+                    'xi':            xi,
+                    'y_real':        y_re,
+                    'y_bl':          y_bl,
+                    'case':          case
+                }, index = [0]), ignore_index = True
+            )
+
+        if y_ix in y_ix_to_plot:
+
+            coh_df_xi_pivot = coh_df[ 
+                coh_df.height_ix == avaiable_y_ix[ y_ix ] 
+            ].pivot( 'xi', 'f', 'phi' )
+
+            coh_df_xi_pivot.to_pickle(
+                join( 
+                    root, 
+                    '{0}_ybl_{1:.1f}.p'.format( 
+                        case , 
+                        y_bl 
+                    ) 
+                )
+            )
+
+        cnt += 1
+        progress.update( cnt )
+
+    Uc_df.to_pickle( 
+        join( root, 'Uc_data_{0}.p'.format( 
+            case.replace("StreamwiseCoherence_","") 
+        )
+        ) 
+    )
+    progress.finish()
+
+def get_streamwise_coherence_and_correlation( hdf_name, overwrite = False ,
+                                            root = ''):
+    from scipy.signal import csd
+    from matplotlib   import rc
+    from numpy        import corrcoef, sqrt, angle
+    from pandas       import read_hdf, DataFrame
+    from os.path      import split, join, isfile
+    from progressbar  import ProgressBar,Percentage
+    from progressbar  import Bar,ETA,SimpleProgress
+    from scipy.signal import coherence
 
     rc('text',usetex=True)
     rc('font',weight='normal')
 
     rc('font',family='serif', serif='Linux Libertine')
 
-    case_coords = read_hdf( hdf_name , where = ( 't=0' ),
-                          columns = [ 'x', 'y' , 'near_x_2h', 'near_y_delta'],
-                          )
+    if not root:
+        root = '/home/carlos/Documents/PhD/Articles/Article_2/' + \
+                'Article2_Scripts/time_resolved_scripts/Results_v2'
 
     case = split( hdf_name )[1].replace('.hdf5','')
 
+    case_coords = read_hdf( hdf_name , where = ( 't=0' ),
+                          columns = [ 'x', 'y' , 'near_x_2h', 'near_y_delta'],
+                          )
+    
     case_coords = case_coords.sort_values( 
         by = [ 'y', 'x' ] 
     )
 
-    case_coords = sort_coordinates_by_height( case_coords )
+    if isfile( join( root, 'StreamwiseCorrelation_Values_{0}.p'.format( case ) )
+             ) and not overwrite:
+        return 0
 
-    print case
+    case_coords = sort_block_coordinates_by_height_and_streamwise( case_coords )
+
+    print "   Performing the streamwise coherence and "
+    print "   correlation analysis of {0}".format(case)
 
     cnt = 0
     progress = ProgressBar(
@@ -361,6 +1222,7 @@ def get_streamwise_coherence( hdf_name, overwrite = False ):
          ).start()
 
     corr_df = DataFrame()
+    coh_df  = DataFrame()
 
     for height_ix in case_coords.height_ix.unique():
 
@@ -387,6 +1249,12 @@ def get_streamwise_coherence( hdf_name, overwrite = False ):
                 'y'
             ]
         )
+        case_x_1[ 'case' ] = case
+
+        case_x_1.loc[ 
+            is_outlier( case_x_1, 'u' , thresh = outlier_thresh) , 'u'
+        ] = case_x_1[ ~is_outlier( case_x_1, 'u' , thresh = outlier_thresh) ]\
+                .u.mean()
 
         case_x_1 = case_x_1.fillna( 0 )
 
@@ -408,21 +1276,67 @@ def get_streamwise_coherence( hdf_name, overwrite = False ):
                     'x',
                     'y'
                 ]
-            )
+            ).sort_values( by = 't' ).reset_index( drop = True )
+
+            case_x_2[ 'case' ] = case
 
             if case_x_2.empty:
                 continue
+
+            case_x_2.loc[ 
+                is_outlier( case_x_2, 'u' , thresh = outlier_thresh) , 'u'
+            ] = case_x_2[ 
+                ~is_outlier( case_x_2, 'u' , thresh = outlier_thresh) 
+            ].u.mean()
 
             case_x_2 = case_x_2.fillna( 0 )
 
             xcorr = corrcoef( case_x_1.u, case_x_2.u )[1,0]
 
-            x1_real = case_x_1.x.unique()
-            x2_real = case_x_2.x.unique()
-            y1_real = case_x_1.y.unique()
-            y2_real = case_x_2.y.unique()
+            f, Pxy = csd(
+                case_x_1.u,
+                case_x_2.u,
+                fs      = fs,
+                nperseg = nperseg,
+            )
+
+            f, gamma = coherence(
+                case_x_2.u,
+                case_x_1.u,
+                fs      = fs,
+                nperseg = nperseg,
+            )
+
+            phi = angle( Pxy )
+
+            x1_real = case_x_1.x.unique()[0]
+            x2_real = case_x_2.x.unique()[0]
+            y1_real = case_x_1.y.unique()[0]
+            y2_real = case_x_2.y.unique()[0]
 
             xi = sqrt( (x2_real - x1_real)**2 + (y2_real - y1_real)**2 )
+
+            coh_df_loc = DataFrame( data = {
+                'gamma' : gamma,
+                'phi'   : phi,
+                'f'     : f,
+            } )
+
+            coh_df_loc[ 'y1_bl'     ] = case_x_1.near_y_delta.unique()[0]
+            coh_df_loc[ 'y2_bl'     ] = case_x_2.near_y_delta.unique()[0]
+            coh_df_loc[ 'y1'        ] = y1_real
+            coh_df_loc[ 'y2'        ] = y2_real
+            coh_df_loc[ 'x1'        ] = x1_real
+            coh_df_loc[ 'x2'        ] = x2_real
+            coh_df_loc[ 'x1_2h'     ] = case_x_1.near_x_2h.unique()[0]
+            coh_df_loc[ 'x2_2h'     ] = case_x_2.near_x_2h.unique()[0]
+            coh_df_loc[ 'xi'        ] = xi
+            coh_df_loc[ 'Um1'       ] = case_x_1.u.mean()
+            coh_df_loc[ 'Um2'       ] = case_x_2.u.mean()
+            coh_df_loc[ 'height_ix' ] = height_ix
+            coh_df_loc[ 'stream_ix' ] = xcorr_coord[1].stream_ix
+
+            coh_df = coh_df.append( coh_df_loc, ignore_index = True )
 
             corr_df = corr_df.append(
                 DataFrame( data = {
@@ -448,21 +1362,27 @@ def get_streamwise_coherence( hdf_name, overwrite = False ):
 
     progress.finish()
 
-    corr_df.to_pickle( 'test/StreamwiseCorrelation_Values_{0}.p'.\
-                      format( case )
+    corr_df.to_pickle( join( root, 'StreamwiseCorrelation_Values_{0}.p'.\
+                      format( case ) )
+                     )
+    coh_df.to_pickle( join( root, 'StreamwiseCoherence_Values_{0}.p'.\
+                      format( case ) )
                      )
 
-def plot_vertical_coherence( hdf_names , plot_individual = True ):
+def get_vertical_correlation( hdf_names , root = '', plot_individual = True,
+                            overwrite = False ):
     import matplotlib.pyplot as plt
     import seaborn as sns
     from matplotlib                      import rc
     from scipy.signal                    import coherence
-    from numpy                           import meshgrid, array, corrcoef
-    from numpy                           import arange
+    from numpy                           import meshgrid, array, corrcoef, nan
+    from numpy                           import sqrt
     from scipy.integrate                 import simps
     from pandas                          import DataFrame, read_hdf
-    from os.path                         import split
+    from os.path                         import split, join, isfile
     from article2_time_resolved_routines import find_nearest
+    from progressbar                     import ProgressBar,Percentage
+    from progressbar                     import Bar,ETA,SimpleProgress
 
     rc('text',usetex=True)
     rc('font',weight='normal')
@@ -471,53 +1391,111 @@ def plot_vertical_coherence( hdf_names , plot_individual = True ):
     sns.set(font='serif',font_scale=3.0,style='ticks')
     rc('font',family='serif', serif='Linux Libertine')
 
-    df_U = DataFrame()
+    if not root:
+        root = '/home/carlos/Documents/PhD/Articles/Article_2/' + \
+                'Article2_Scripts/time_resolved_scripts/Results_v2'
 
-    for hdf_name in hdf_names:
+    for hdf_name in [ join(root, f) for f in hdf_names]:
+
+        case = split( hdf_name )[1].replace('.hdf5','')
+
+        if isfile(
+            join( root, 'WallNormalCorrelation_Values_{0}.p'.format( case ) ) ):
+            if not overwrite:
+                continue
+
+        print "  Processing vertical coh and corr for {0}".format( case )
 
         case_coords = read_hdf( 
             hdf_name , 
-            where = ( 't=0' ),
-            columns = [ 'near_x_2h', 'near_y_delta' ]
+            where = ( 't=0 & near_y_delta > 0.2' ),
+            columns = [ 'x', 'y' , 'near_x_2h', 'near_y_delta'],
+        ).sort_values( by = [ 'x', 'y' ] )
+        
+        print "  from y/delta = {0:.2f} to {1:.2f}".format( 
+            case_coords.near_y_delta.min(),
+            case_coords.near_y_delta.max(),
         )
 
-        case = split( hdf_name )[1].replace('.hdf5','')
+        #if 'z00' in hdf_name and not 'STE' in hdf_name:
+        #    case_coords = case_coords[ case_coords.near_y_delta > 0.15 ]
+
+        case_coords = sort_block_coordinates_by_height_and_streamwise( 
+            case_coords 
+        )
 
         color, marker, cmap = get_color_and_marker( 
             case
         )
 
-        available_x = sorted( case_coords.near_x_2h.unique() )
+        available_x = sorted( 
+            case_coords[ case_coords.height_ix == 0 ].near_x_2h.unique() 
+        )
 
         # Only evaluate the location over the TE # #########################
         if 'z10' in hdf_name :
-            x = find_nearest( 0.00, available_x )
+            x = find_nearest( -2 / 40. , available_x )
         elif  'STE' in hdf_name:
-            x = find_nearest( -0.05, available_x )
+            x = find_nearest( -2 / 40. , available_x )
         elif 'z05' in hdf_name:
-            x = find_nearest( 0.5, available_x )
+            x = find_nearest( 18 / 40. , available_x )
         elif 'z00' in hdf_name:
-            x = find_nearest( 1, available_x )
+            x = find_nearest( 38 / 40. , available_x )
 
-        case_df = read_hdf(hdf_name, 
-                           where = ( 'near_x_2h = {0}'.format( x ) )
-                          )
-
-        available_y = case_coords.near_y_delta.unique()
-        if "STE" in hdf_name: 
-            available_y = case_df.near_y_delta.unique()[1::2]
-        elif "z10" in hdf_name:
-            available_y = case_df.near_y_delta.unique()[0::2]
-        else:
-            available_y = case_df.near_y_delta.unique()[0::2]
+        central_stream_ix = case_coords[ 
+            ( case_coords.near_x_2h == x ) & \
+            ( case_coords.height_ix == 0 )
+        ].stream_ix.unique()[0]
 
         corr_df = DataFrame()
 
-        for y1 in [ y for y in available_y if y <= 1 ]:
-            print case,y1,x
+        height_ixs = case_coords[ 
+            case_coords.stream_ix == central_stream_ix 
+        ].height_ix.unique()
 
-            case_y_1 = case_df[ case_df.near_y_delta == y1 ]\
-                    .sort_values( by = 't' ).reset_index( drop = True )
+        progress = ProgressBar(
+             widgets=[
+                 Bar(),' ',
+                 Percentage(),' ',
+                 ETA(), ' ( streamwise location ',
+                 SimpleProgress(),' )'], 
+             maxval= len( height_ixs )**2 
+             ).start()
+
+        cnt = 0
+
+        for y1_ix in height_ixs:
+
+            x1_loc = case_coords[
+                ( case_coords.stream_ix == central_stream_ix ) & \
+                ( case_coords.height_ix == y1_ix )
+            ].near_x_2h.unique()[0]
+
+            y1_loc = case_coords[
+                ( case_coords.stream_ix == central_stream_ix ) & \
+                ( case_coords.height_ix == y1_ix )
+            ].near_y_delta.unique()[0]
+
+            case_y_1 = read_hdf(
+                hdf_name, 
+                where = ( 
+                    'near_x_2h = {0} & near_y_delta = {1}'.format( 
+                        x1_loc ,
+                        y1_loc
+                    ) 
+                )
+            ).sort_values( by = 't' ).reset_index( drop = True )
+
+            case_y_1[ 'case' ] = case
+
+            #case_y_1.loc[ 
+            #    is_outlier( case_y_1, 'v' , thresh = outlier_thresh) , 'v'
+            #] = case_y_1[ 
+            #    ~is_outlier( case_y_1, 'v'  , thresh = outlier_thresh) 
+            #].v.mean()
+            case_y_1.loc[ 
+                is_outlier( case_y_1, 'v' , thresh = outlier_thresh) , 'v'
+            ] = nan 
 
             gamma              = []
             delta_y            = []
@@ -527,71 +1505,94 @@ def plot_vertical_coherence( hdf_names , plot_individual = True ):
             if plot_individual:
                 fig, ax = plt.subplots(1, 2, sharex=True, figsize = (15,5))
 
-            df_U = df_U.append(
-                DataFrame(
-                    data = {
-                        'u':      case_y_1.u.mean(),
-                        'y':      y1 ,
-                        'marker': ' {0}'.format( marker ),
-                        'case':   case
-                    }, index = [0]
-                ), ignore_index = True
-            )
+            for y2_ix in case_coords[ 
+                case_coords.stream_ix == central_stream_ix 
+            ].height_ix.unique():
 
-            for y2 in available_y:
+                x2_loc = case_coords[
+                    ( case_coords.stream_ix == central_stream_ix ) & \
+                    ( case_coords.height_ix == y2_ix )
+                ].near_x_2h.unique()[0]
 
-                case_y_2 = case_df[ 
-                    case_df.near_y_delta == y2 
-                ].sort_values( by = 't' ).reset_index( drop = True )
+                y2_loc = case_coords[
+                    ( case_coords.stream_ix == central_stream_ix ) & \
+                    ( case_coords.height_ix == y2_ix )
+                ].near_y_delta.unique()[0]
 
-                case_y_2 = case_y_2.fillna( 0 )
-                case_y_1 = case_y_1.fillna( 0 )
+                case_y_2 = read_hdf(
+                    hdf_name, 
+                    where = ( 
+                        'near_x_2h = {0} & near_y_delta = {1}'.format( 
+                            x2_loc ,
+                            y2_loc
+                        ) 
+                    )
+                ).sort_values( by = 't' ).reset_index( drop = True )
+
+                case_y_2[ 'case' ] = case
+
+                #case_y_2.loc[ 
+                #    is_outlier( case_y_2, 'v', thresh = outlier_thresh) , 'v'
+                #] = case_y_2[ 
+                #    ~is_outlier( case_y_2, 'v', thresh = outlier_thresh) 
+                #].v.mean()
+                case_y_2.loc[ 
+                    is_outlier( case_y_2, 'v', thresh = outlier_thresh) , 'v'
+                ] = nan
+
+                #if y2_ix == 0:
+                #    case_y_1.plot('t','v')
+                #    plt.show()
 
                 f, gamma_loc = coherence(
-                    case_y_2['v'],
-                    case_y_1['v'],
+                    case_y_1.v, #.interpolate(method='spline', order=3, s=0.),
+                    case_y_2.v, #.interpolate(  method='spline', order=3, s=0.),
                     fs = 10000,
                     nperseg = 2**7,
                 )
 
-                if not len(case_y_1.v) == len(case_y_2.v):
-                    xcorr = 0
-                    print " Different lengths"
-                    print len(case_y_1.v), len(case_y_2.v)
-                elif not case_y_2.v.mean() or not case_y_1.v.mean():
-                    xcorr = 0
-                    print " No velocity"
-                else:
-                    xcorr = corrcoef( case_y_1.v, case_y_2.v )[1,0]
-
                 gamma.append( gamma_loc )
 
-                delta_y.append( case_y_2.y.unique()[0] - \
-                               case_y_1.y.unique()[0])
-                delta_y_bl.append( y2 - y1 )
+                xcorr = corrcoef( 
+                    case_y_1.v.interpolate( method='spline', order=3, s=0.), 
+                    case_y_2.v.interpolate( method='spline', order=3, s=0.) 
+                )[1,0]
 
-                y2_real = case_y_2[
-                            case_y_2.near_y_delta == y2
-                        ].y.unique()[0]
-                y1_real = case_y_1[
-                            case_y_1.near_y_delta == y1
-                        ].y.unique()[0]
+                delta_y.append( 
+                    case_y_2.y.unique()[0] - case_y_1.y.unique()[0] 
+                )
+
+                delta_y_bl = y2_loc - y1_loc
+
+                y1_real = case_y_1.y.unique()[0]
+                y2_real = case_y_2.y.unique()[0]
+                x1_real = case_y_1.x.unique()[0]
+                x2_real = case_y_2.x.unique()[0]
+
+                xi = sqrt( ( x1_real - x2_real )**2 + \
+                          ( y1_real - y2_real )**2 )
 
                 corr_df = corr_df.append(
                     DataFrame( data = {
-                        'xcorr':   xcorr,
-                        'y2_bl':   y2,
-                        'y1_bl':   y1,
-                        'y2_real': y2_real,
-                        'y1_real': y1_real,
-                        'delta_y': y2_real - y1_real,
-                        'case':    case
-                    } , index = [0] ), ignore_index = True
+                        'xcorr':      xcorr,
+                        'y2_bl':      y2_loc,
+                        'y1_bl':      y1_loc,
+                        'y2_real':    y2_real,
+                        'y1_real':    y1_real,
+                        'xi':         xi,
+                        'case':       case,
+                        'height_ix1': y1_ix,
+                        'height_ix2': y2_ix,
+                        'Um':         case_y_1.u.mean()
+                    } , index = [0] ), 
+                    ignore_index = True
                 )
+
+                cnt += 1
+                progress.update( cnt )
 
             gamma   = array(gamma)
             delta_y = array(delta_y)
-
 
             for ix in range(len(f)):
                 int_gamma_per_freq.append( 
@@ -615,51 +1616,142 @@ def plot_vertical_coherence( hdf_names , plot_individual = True ):
                                  r'\left( \xi_y \right)$' 
                                 )
 
-                fig.savefig('test/VCoh_{0}_y{1:.2f}.png'.format( case, y1 ),
-                           bbox_inches = 'tight')
+                fig.savefig( join( root, 'VCoh_{0}_y{1:.2f}.png'.format( 
+                    case, y1_loc 
+                ) ),
+                    bbox_inches = 'tight')
                 plt.close( fig )
 
-        corr_df.to_pickle( 'test/WallNormalCorrelation_Values_{0}.p'.\
-                          format( case )
-                         )
+        progress.finish()
 
-        corr_df = corr_df.drop( ['y2_real','y1_real','case'] , axis = 1)
+        corr_df.to_pickle( 
+            join( root, 'WallNormalCorrelation_Values_{0}.p'.format( case ) )
+        )
 
-        corr_df = corr_df.sort_values( by = [ 'y1_bl', 'y2_bl' ] )
-        
-        corr_pivot = corr_df.pivot( 'y1_bl', 'y2_bl', 'xcorr' )
+def return_correct_schematic( case ):
+    from os      import listdir
+    from os.path import join
+    from re      import findall
 
-        X   = corr_pivot.columns.values
-        Y   = corr_pivot.index.values
-        x,y = meshgrid(X, Y)
-        Z   = corr_pivot.values
+    root = '/home/carlos/Documents/PhD/Articles/Article_2/Figures/'
 
-        fig,ax = plt.subplots(1,1)
+    available_schematics = [ 
+        f for f in listdir( root ) \
+        if f.startswith('measurement_locations') \
+        if f.endswith('.png')
+    ]
 
-        ax.contourf(x, y, Z, levels = arange(0,1.1,0.1) )
+    z_loc  = findall( 'z[0-9][0-9]', case )[0]
+    device = findall( 'S[0-9rTER]+', case )[0]
+    for s in available_schematics:
+        if device in s and s.endswith('_STE.png'):
+            return join( root, s )
+        elif z_loc in s and not device == "STE":
+            return join( root, s )
 
-        ax.set_xlabel(r'$y/\delta$')
-        ax.set_ylabel(r'$y/\delta$')
+    return 0
 
-        fig.savefig('test/WallNormalCorrelation_{0}.png'\
-                    .format( case ),
-                    bbox_inches = 'tight'
-                   )
 
-        corr_pivot.to_pickle('test/WallNormalCorrelation_Pivot_{0}.p'\
-                                .format( case )
-                               )
-        plt.close( fig )
+def plot_vertical_correlation_from_pickle( pickled_correlation, 
+                                          plot_schematic = True , root = ''):
+    import matplotlib.pyplot as plt
+    from pandas           import read_pickle
+    from os.path          import split, join
+    from numpy            import meshgrid, arange
+    from matplotlib       import rc
+    from matplotlib.cbook import get_sample_data
 
-    df_U.to_pickle( 'test/Um.p' )
+    rc('text',usetex=True)
 
-def plot_streamwise_correlation_from_pickle( pickled_correlation ):
+    rc('font',
+       family = 'serif',
+       serif  = 'Linux Libertine',
+       size   = 40,
+       weight = 'normal'
+      )
+
+    fontsize = 25
+
+    if not root:
+        root = '/home/carlos/Documents/PhD/Articles/Article_2/' + \
+                'Article2_Scripts/time_resolved_scripts/Results_v2'
+
+    corr_df = read_pickle( join( root, pickled_correlation ) )
+    case = split( pickled_correlation )[1].replace('.p','')
+
+    corr_df = corr_df.sort_values( by = [ 'height_ix1', 'height_ix2' ] )
+    
+    corr_pivot = corr_df.pivot( 'y1_bl', 'y2_bl', 'xcorr' )
+
+    X   = corr_pivot.columns.values
+    Y   = corr_pivot.index.values
+    x,y = meshgrid(X, Y)
+    Z   = corr_pivot.values
+
+    fig,ax       = plt.subplots(1,1, figsize = (7,7) )
+
+    CS = ax.contourf(x, y, Z, levels = arange(0,1.1,0.1) , cmap = plt.cm.Blues)
+    cbar = plt.colorbar(CS, shrink = 0.4)
+    cbar.ax.set_ylabel(r'$R_{vv}$', fontsize = fontsize)
+    cbar.ax.tick_params( labelsize = fontsize )
+
+    if plot_schematic:
+        schematic = return_correct_schematic( pickled_correlation )
+
+        im = plt.imread( get_sample_data( schematic ) )
+        newax = fig.add_axes([0.5, 0.34, 0.22, 0.22], anchor = 'SW', 
+                                     zorder=100)
+        newax.imshow(im)
+        newax.axis('off')
+
+    ax.set_xlabel(r'$y/\delta$', fontsize = fontsize)
+    ax.set_ylabel(r'$y/\delta$', fontsize = fontsize)
+    ax.set_aspect( 'equal' )
+    ax.set_ylim( 0.2, 1.2 )
+    ax.set_xticks(  [0.25, 0.5, 0.75, 1, 2] )
+    ax.set_xticklabels( [0.25, 0.5, 0.75, 1, 2], rotation = 30 )
+                 
+    ax.set_yticks( [0.25, 0.5, 0.75, 1] )
+    ax.set_yticklabels( [0.25, 0.5, 0.75, 1] )
+    ax.tick_params(axis='both', which='major', labelsize=fontsize)
+    ax.set_xlim( left = 0.2 )
+
+    fig.savefig( 
+        join( root, '{0}.png'.format( case.replace("_Values","") ) ),
+        bbox_inches = 'tight'
+    )
+
+    corr_pivot.to_pickle(
+        join( root, 'WallNormalCorrelation_Pivot_{0}.p'.format( case ) )
+    )
+
+    plt.close( fig )
+
+def plot_streamwise_correlation_from_pickle( pickled_correlation ,
+                                           plot_schematic = True, 
+                                            root = ''
+                                           ):
     import matplotlib.pyplot as plt
     from pandas import read_pickle
-    from os.path import split
+    from os.path import split, join
     from numpy import meshgrid, arange
+    from matplotlib      import rc
+    from matplotlib.cbook import get_sample_data
 
-    df = read_pickle( pickled_correlation )
+    if not root:
+        root = '/home/carlos/Documents/PhD/Articles/Article_2/' + \
+                'Article2_Scripts/time_resolved_scripts/Results_v2'
+
+    rc('text',usetex=True)
+
+    rc('font',
+       family = 'serif',
+       serif  = 'Linux Libertine',
+       size   = 30,
+       weight = 'normal'
+      )
+
+    df   = read_pickle( join( root, pickled_correlation ) )
     case = split( pickled_correlation )[1].replace('.p','')
 
     df[ 'near_x_2h' ] = 0
@@ -675,15 +1767,25 @@ def plot_streamwise_correlation_from_pickle( pickled_correlation ):
     x,y = meshgrid(X, Y)
     Z   = corr_pivot.values
 
-    fig,ax = plt.subplots(1,1)
+    fig,ax = plt.subplots(1,1, figsize = (5,5) )
 
-    ax.contourf(x, y, Z, levels = arange(0,1.1,0.1) )
+    ax.contourf(x, y, Z, levels = arange(0,1.1,0.1)  , cmap = plt.cm.Blues)
+
+    if plot_schematic:
+        schematic = return_correct_schematic( pickled_correlation )
+
+        im = plt.imread( get_sample_data( schematic ) )
+        newax = fig.add_axes([0.15, 0.13, 0.35, 0.35], anchor = 'SW', 
+                                     zorder=100)
+        newax.imshow(im)
+        newax.axis('off')
 
     ax.set_xlabel(r'$\xi/2h$')
     ax.set_ylabel(r'$y/\delta$')
+    ax.set_ylim( 0.1, 1.2 )
 
-    fig.savefig('test/WallNormalCorrelation_{0}.png'\
-                .format( case ),
+    fig.savefig( join( root, '{0}.png'\
+                .format( case.replace('_Values','') ) ),
                 bbox_inches = 'tight'
                )
 
@@ -709,7 +1811,8 @@ def get_streamwise_length_scale_and_ke( root = 0 ):
       )
 
     if not root:
-        root = 'test'
+        root = '/home/carlos/Documents/PhD/Articles/Article_2/' + \
+                'Article2_Scripts/time_resolved_scripts/Results_v2'
 
     corr_pickles = [ f for f in listdir( root )\
                     if f.startswith( 'StreamwiseCorrelation_Values' )
@@ -784,17 +1887,23 @@ def get_streamwise_length_scale_and_ke( root = 0 ):
     ax[0].set_ylabel( r'$y/\delta$' )
     ax[1].set_xlabel( r'$k_e$ [1/m]' )
     ax[1].set_xlim(100, 350)
-    fig.savefig("test/StreamwiseLengthScales.png", bbox_inches = 'tight' )
+    fig.savefig(
+        join( root, "StreamwiseLengthScales.png" ),
+        bbox_inches = 'tight' 
+    )
 
-    length_scale_df.to_pickle( 'test/StreamwiseLengthScales.p' )
+    length_scale_df.to_pickle( 
+        join( root, 'StreamwiseLengthScales.p' )
+    )
 
 
 def get_vertical_length_scale( root = 0 ):
-    from pandas          import read_pickle, DataFrame
+    from pandas          import read_pickle, DataFrame, concat
     from os              import listdir
     from os.path         import join
     from scipy.integrate import simps
     from matplotlib      import rc
+    from matplotlib.cbook import get_sample_data
     import matplotlib.pyplot as plt
 
     rc('text',usetex=True)
@@ -802,28 +1911,34 @@ def get_vertical_length_scale( root = 0 ):
     rc('font',
        family = 'serif',
        serif  = 'Linux Libertine',
-       size   = 30,
+       size   = 40,
        weight = 'normal'
       )
 
+    fontsize = 40
+
     if not root:
-        root = 'test'
+        root = '/home/carlos/Documents/PhD/Articles/Article_2/' + \
+                'Article2_Scripts/time_resolved_scripts/Results_v2'
 
     corr_pickles = [ f for f in listdir( root )\
                     if f.startswith( 'WallNormalCorrelation_Values' )
                     and f.endswith( '.p' )
-                    #and not "STE" in f
                    ]
 
-    fig = plt.figure(figsize=(5,5))
+    fig,    ax    = plt.subplots( 1, 1, figsize = (7,5) )
+    fig_Um, ax_Um = plt.subplots( 1, 1 )
 
     length_scale_df = DataFrame()
+
     for c in corr_pickles:
-        corr_df = read_pickle( join( root, c ) )
+        corr_df = read_pickle( join( root, c ) ).sort_values( 
+            by = ['height_ix1', 'height_ix2'] )
 
         color, marker, cmap = get_color_and_marker( 
             c
         )
+        
         plot_config = {
             'marker'          : marker,
             'markeredgewidth' : markeredgewidth,
@@ -835,36 +1950,65 @@ def get_vertical_length_scale( root = 0 ):
         }
 
 
-        for y in corr_df.y1_real.unique():
+        ls = []
+        for y in corr_df.height_ix1.unique():
 
-            corr_df_y = corr_df[ corr_df.y1_real == y ]
+            ax_Um.plot(
+                corr_df[ corr_df.height_ix1 == y ].Um.unique()[0],
+                corr_df[ corr_df.height_ix1 == y ].y1_bl.unique()[0],
+                **plot_config
+            )
+
+            corr_df_y = corr_df[ corr_df.height_ix1 == y ]
 
             length_scale = simps(
                 corr_df_y.xcorr,
-                corr_df_y.delta_y
+                corr_df_y.xi
             )
 
-            length_scale_df = length_scale_df.append(
-                DataFrame( data = {
-                    'case': corr_df_y.case.unique()[0],
-                    'y':    y,
-                    'ls':   length_scale
-                }, index = [0] ), ignore_index = True
-            )
+            ls.append( length_scale )
 
-            plt.plot(
+            ax.plot(
                 length_scale,
                 corr_df_y.y1_bl.unique()[0],
                 **plot_config
             )
 
-    plt.ylim(0, 1)
-    plt.xlim(left=0)
-    plt.xlabel( r'$\Lambda_{2|22}$' )
-    plt.ylabel( r'$y/\delta$' )
-    fig.savefig("test/VerticalLengthScales.png", bbox_inches = 'tight' )
+        length_scale_df = concat([ length_scale_df, 
+            DataFrame( data = {
+                corr_df_y.case.unique()[0] : ls
+            }, index = corr_df.y1_bl.unique() ) ], axis = 1
+        )
 
-    length_scale_df.to_pickle( 'test/VerticalLengthScales.p' )
+
+    ax.set_ylim(0, 1)
+    ax.set_xlim(1, 4)
+    ax.set_xticks( [1, 2, 3] )
+    ax.set_xlabel( r'$\Lambda_{y|vv}$ [m]$\times10^{-3}$' , fontsize = fontsize)
+    ax.tick_params(axis='both', which='major', labelsize=fontsize)
+    ax.set_ylabel( r'$y/\delta$' , fontsize = fontsize)
+
+    schematic = '/home/carlos/Documents/PhD/Articles/Article_2/'+\
+            'Figures/measurement_locations_TE_m2.png'
+
+    im = plt.imread( get_sample_data( schematic  ) )
+    newax = fig.add_axes([0.60, 0.5, 0.35, 0.35], anchor = 'SW', 
+                                 zorder=100)
+    newax.imshow(im)
+    newax.axis('off')
+
+    fig.savefig( 
+        join( root, "VerticalLengthScales.png"), 
+        bbox_inches = 'tight' 
+    )
+
+    ax_Um.set_ylim(0, 1)
+    ax_Um.set_xlim(0, 20)
+    ax_Um.set_xlabel( r'$\overline u$' )
+    ax_Um.set_ylabel( r'$y/\delta$' )
+    fig_Um.savefig( join( root, "Um.png" ), bbox_inches = 'tight' )
+
+    length_scale_df.to_pickle( join( root, 'VerticalLengthScales.p' ) )
 
 
 def get_Uc_phi_and_coherence(signal1_df, signal2_df):
@@ -951,8 +2095,8 @@ def get_Uc_phi_and_coherence(signal1_df, signal2_df):
     df = remove_angle_jumps(df)
     df = df.drop_duplicates()
 
-    df.loc[ is_outlier( df[ 'phi_v' ] , thresh = 2.0) , 'phi_v' ] = 0
-    df.loc[ is_outlier( df[ 'phi_u' ] , thresh = 2.0) , 'phi_u' ] = 0
+    df.loc[ is_outlier( df, 'phi_v' , thresh = 2.0) , 'phi_v' ] = 0
+    df.loc[ is_outlier( df, 'phi_u' , thresh = 2.0) , 'phi_u' ] = 0
 
     Uc_u, Uc_v,data,intercept,slope_u,slope_v = calculate_Uc_from_St(
         df,
@@ -1015,6 +2159,7 @@ def do_the_reynolds_stress_quadrant_analysis(cases_df,y_delta, plot_name = ''):
     from matplotlib import rc
     import seaborn as sns
     import matplotlib.pyplot as plt
+    from numpy import linspace, mean
 
     rc('text',usetex=True)
     rc('font',weight='normal')
@@ -1025,12 +2170,6 @@ def do_the_reynolds_stress_quadrant_analysis(cases_df,y_delta, plot_name = ''):
 
     cases = sorted(cases_df.file.unique(),reverse=True)
 
-    fig_vw,axes_vw = plt.subplots(
-        1,len(cases), 
-        figsize = (figsize[0]*len(cases), figsize[1]), 
-        sharex=True,
-        sharey=True, 
-    )
     fig_uv,axes_uv = plt.subplots(
         1,len(cases), 
         figsize = (figsize[0]*len(cases), figsize[1]), 
@@ -1041,8 +2180,8 @@ def do_the_reynolds_stress_quadrant_analysis(cases_df,y_delta, plot_name = ''):
     if not len(cases)>2:
         return 0
         
-    for case_file, case_i, ax_uv, ax_vw in zip(cases, range(len(cases)), 
-                                     axes_uv, axes_vw):
+    for case_file, case_i, ax_uv in zip(cases, range(len(cases)), 
+                                     axes_uv):
 
         case = cases_df[cases_df.file == case_file]\
                 .sort_values( by = ['time_step'] )
@@ -1060,6 +2199,17 @@ def do_the_reynolds_stress_quadrant_analysis(cases_df,y_delta, plot_name = ''):
         case["vprime"] = ( case.v - case.v.mean() ) / bl_data.Ue.values[0]
         case["wprime"] = ( case.w - case.w.mean() ) / bl_data.Ue.values[0]
         
+        
+        kde_uv = sns.kdeplot(case.uprime, case.vprime,
+                             cmap         = cmap,
+                             ax           = ax_uv,
+                             shade        = True,
+                             shade_lowers = False,
+                             gridsize     = 80,
+                             zorder = 120, 
+                             alpha = 0.8,
+                   )
+        
         ax_uv.plot(
             case['uprime'].values[::100],
             case['vprime'].values[::100],
@@ -1070,13 +2220,28 @@ def do_the_reynolds_stress_quadrant_analysis(cases_df,y_delta, plot_name = ''):
             markeredgecolor = 'k',
             markersize      = markersize*1.8,
             mew             = mew,
-            color           = 'k',
-            alpha           = 0.4
+            alpha           = 0.4,
+            zorder = 100
         )
-        
-        ax_vw.plot(
-            case['vprime'].values[::100],
-            case['wprime'].values[::100],
+
+        t = linspace( -0.3, 0.3, 100 )
+
+        up = 6 * -mean(case['uprime']*case['vprime'])/t
+        ax_uv.plot( t, up , ls = '-.', c = 'k', lw = 3 , zorder = 500)
+        ax_uv.plot( t, -up , ls = '-.', c = 'k', lw = 3 , zorder = 500)
+
+        ax_uv.fill_between( t, 
+                           -up,
+                           up,
+                           facecolor='w', 
+                           alpha=1.0,
+                           zorder = 80
+                          )
+
+
+        ax_uv.plot(
+            case['uprime'].values[::10],
+            case['vprime'].values[::10],
             ls              = '',
             marker          = marker,
             markeredgewidth = markeredgewidth,
@@ -1084,71 +2249,48 @@ def do_the_reynolds_stress_quadrant_analysis(cases_df,y_delta, plot_name = ''):
             markeredgecolor = 'k',
             markersize      = markersize*1.8,
             mew             = mew,
-            color           = 'k',
-            alpha           = 0.4
+            alpha           = 0.3,
+            zorder = 1
         )
 
-        kde_uv = sns.kdeplot(case.uprime, case.vprime,
-                    cmap         = cmap,
-                    ax           = ax_uv,
-                    shade        = True,
-                    shade_lowers = False,
-                    gridsize     = 30
-                   )
-        kde_vw = sns.kdeplot(case.vprime, case.wprime,
-                    cmap         = cmap,
-                    ax           = ax_vw,
-                    shade        = True,
-                    shade_lowers = False,
-                    gridsize     = 30
-                   )
-        
         ax_uv.set_aspect('equal')
-        ax_vw.set_aspect('equal')
         kde_uv.collections[0].set_alpha(0)
-        kde_vw.collections[0].set_alpha(0)
 
-        ax_vw.set_xlabel('')
-        ax_vw.set_ylabel('')
         ax_uv.set_xlabel('')
         ax_uv.set_ylabel('')
 
-        ax_vw.set_xlim( -0.3 , 0.3 )
-        ax_vw.set_ylim( -0.3 , 0.3 )
-        ax_vw.set_xticks([-0.2,0,0.2])
-        ax_vw.set_yticks([-0.2,0,0.2])
-        ax_uv.set_xlim( -0.3 , 0.3 )
-        ax_uv.set_ylim( -0.3 , 0.3 )
+        ax_uv.set_xlim( -0.25 , 0.25 )
+        ax_uv.set_ylim( -0.25 , 0.25 )
         ax_uv.set_xticks([-0.2,0,0.2])
         ax_uv.set_yticks([-0.2,0,0.2])
 
-        ax_uv.axhline( 0, ls = '--', lw=3 , c = 'k')
-        ax_uv.axvline( 0, ls = '--', lw=3 , c = 'k')
-        ax_vw.axhline( 0, ls = '--', lw=3 , c = 'k')
-        ax_vw.axvline( 0, ls = '--', lw=3 , c = 'k')
+        ax_uv.axhline( 0, ls = '--', lw=3 , c = 'k', zorder = 150)
+        ax_uv.axvline( 0, ls = '--', lw=3 , c = 'k', zorder = 150)
 
         if y_delta == 0.1:
             ax_uv.set_xlabel(r"$u'/u_e$")
             ax_uv.grid(False)
-            ax_vw.set_xlabel(r"$v'/v_e$")
-            ax_vw.grid(False)
 
-    axes_vw[0].set_ylabel(r"$w'/u_e$")
     axes_uv[0].set_ylabel(r"$v'/u_e$")
 
-    t = axes_uv[0].text( -0.25, 0.2, r'$y/\delta_{{99}} = {0}$'.format(y_delta))
-    t.set_bbox(dict(color='white', alpha=0.7, edgecolor='white'))
-    t = axes_vw[0].text( -0.25, 0.2, r'$y/\delta_{{99}} = {0}$'.format(y_delta))
-    t.set_bbox(dict(color='white', alpha=0.7, edgecolor='white'))
+    t = axes_uv[0].text( -0.22, 0.15, 
+                        r'$y/\delta_{{99}} = {0}$'.format(y_delta),
+                       zorder = 300)
+    t.set_bbox(dict(color='white', alpha=0.9, edgecolor='white', zorder = 300))
 
+    t = axes_uv[-1].text( -0.22, 0.15, 
+                        r'II'.format(y_delta),
+                       zorder = 300)
+    t.set_bbox(dict(color='white', alpha=0.9, edgecolor='white', zorder = 300))
+
+    t = axes_uv[-1].text( 0.22, -0.18, 
+                        r'IV'.format(y_delta), ha='right',
+                       zorder = 300)
+    t.set_bbox(dict(color='white', alpha=0.9, edgecolor='white', zorder = 300))
 
     plot_name = 'Results/ReynoldsQuadrant_{0}_ydelta{1:.2f}.png'\
         .format( plot_name,y_delta )
 
-    fig_vw.savefig( 
-        plot_name.replace('.','_').replace('_png','_vw.png'),
-        bbox_inches = 'tight'
-    )
     fig_uv.savefig( 
         plot_name.replace('.','_').replace('_png','_uv.png'),
         bbox_inches = 'tight'
@@ -1795,6 +2937,8 @@ mew             = 4 # Marker edge width
 figsize         = (8,7)
 
 serration_angle = 76.
+
+outlier_thresh  = 3.5
 
 # ##############################################################################
 
