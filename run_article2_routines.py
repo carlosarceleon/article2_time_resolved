@@ -311,18 +311,19 @@ def correlation_coherence_and_length_scale_analysis():
         #    overwrite = overwrite
         #)
 
-        for hdf in hdfs:
-            dar.plot_vertical_correlation_from_pickle( 
-                join( 
-                    root, 
-                    'WallNormalCorrelation_Values_' + hdf.replace( 
-                        '.hdf5', '.p' 
-                    )
-                ),
-                root = root
-            )
+        #for hdf in hdfs:
+        #    dar.plot_vertical_correlation_from_pickle( 
+        #        join( 
+        #            root, 
+        #            'WallNormalCorrelation_Values_' + hdf.replace( 
+        #                '.hdf5', '.p' 
+        #            )
+        #        ),
+        #        root = root
+        #    )
 
-        dar.get_vertical_length_scale( root = root )
+        #dar.get_vertical_length_scale( root = root )
+        dar.print_vertical_length_scale_bl_integration( )
 
     def do_the_streamwise_coherence_analysis( hdfs , overwrite = False ):
 
@@ -343,14 +344,14 @@ def correlation_coherence_and_length_scale_analysis():
 
         #dar.get_streamwise_length_scale_and_ke()
 
-        #dar.plot_pickled_Uc( 
-        #    [ 'Uc_data_Values_' + f.replace('.hdf5','.p') for f in hdfs ]
-        #)
-        
-        dar.plot_wavenumber_spectra( 
-            [ join( source_root, h ) for h in hdfs ], 
-            var = 'u'
+        dar.plot_pickled_Uc( 
+            [ 'Uc_data_Values_' + f.replace('.hdf5','.p') for f in hdfs ]
         )
+        
+        #dar.plot_wavenumber_spectra( 
+        #    [ join( source_root, h ) for h in hdfs ], 
+        #    var = 'u'
+        #)
         #dar.plot_phi()
 
     hdf_list_to_process = [

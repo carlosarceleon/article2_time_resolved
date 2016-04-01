@@ -407,7 +407,7 @@ def plot_wavenumber_spectra( hdf_cases , root = '', var = 'v'):
 
 
 
-def plot_pickled_Uc( pickled_Uc_list , root = ''):
+def plot_pickled_Uc( pickled_Uc_list , root = '', print_integration = False):
     import matplotlib.pyplot as plt
     from pandas                          import read_pickle, DataFrame, concat
     from pandas                          import Series
@@ -415,6 +415,7 @@ def plot_pickled_Uc( pickled_Uc_list , root = ''):
     from scipy.optimize                  import curve_fit
     from matplotlib                      import rc
     from scipy.interpolate               import splprep, splev
+    from scipy.integrate                 import simps
     from numpy                           import linspace, arange
     from numpy                           import diff as npdiff
     from article2_time_resolved_routines import find_nearest
@@ -508,6 +509,15 @@ def plot_pickled_Uc( pickled_Uc_list , root = ''):
                 bl_parameters.Ue.values[0] 
 
         y_bl = Uc_df.y_bl.unique() 
+
+        int_Uc = simps(
+            mean_Uc,
+            Uc_df.y_real.unique()
+        )
+
+        if print_integration:
+            print Uc_df.case.unique(), int_Uc, Uc_df.y_real.min()
+
 
         # spline parameters
         s    = 1.0 # smoothness parameter
@@ -633,19 +643,30 @@ def plot_pickled_Uc( pickled_Uc_list , root = ''):
                     lw = 6
                 )
 
-                ax_shear.plot(
-                    ( npdiff( U_mean_df[ 
+                dudy = ( npdiff( U_mean_df[ 
                         U_mean_df[col]['ybl'] > 0.2 
                     ][ col ][ 'u_real' ] ) / \
                     npdiff( U_mean_df[ 
                         U_mean_df[col]['ybl'] > 0.2 
-                    ][ col ][ 'y_real' ] ) )**2 ,
+                    ][ col ][ 'y_real' ] ) )**2
+                
+                ax_shear.plot(
+                    dudy ,
                     U_mean_df[ 
                         U_mean_df[col]['ybl'] > 0.2 
                     ][ col ][ 'ybl' ][:-1],
                     ls = '',
                     **plot_config
                 )
+
+                int_shear = simps(
+                    dudy,
+                    U_mean_df[ 
+                        U_mean_df[col]['ybl'] > 0.2 
+                    ][ col ][ 'y_real' ][:-1],
+                )
+
+                print "Shear", col, int_shear
 
                 
                 v_uc_df = concat( [ 
@@ -663,6 +684,12 @@ def plot_pickled_Uc( pickled_Uc_list , root = ''):
                     ls = '',
                     **plot_config
                 )
+
+                int_v_uc = simps(
+                    (v_uc_df.v_real / v_uc_df.uc )[::3]**2 ,
+                    v_uc_df.index.values[::3],
+                )
+                print "v_uc", col, int_v_uc
 
         ax.set_xlabel( r'$ u_c / u_e $' , fontsize = fontsize)
 
@@ -1976,10 +2003,13 @@ def get_vertical_length_scale( root = 0 ):
 
         length_scale_df = concat([ length_scale_df, 
             DataFrame( data = {
-                corr_df_y.case.unique()[0] : ls
+                ( corr_df_y.case.unique()[0], 'ls' ) : ls,
+                ( corr_df_y.case.unique()[0], 'y' ) : \
+                corr_df.y1_real.unique(),
+                ( corr_df_y.case.unique()[0], 'ybl' ) : \
+                corr_df.y1_bl.unique(),
             }, index = corr_df.y1_bl.unique() ) ], axis = 1
         )
-
 
     ax.set_ylim(0, 1)
     ax.set_xlim(1, 4)
@@ -2010,6 +2040,27 @@ def get_vertical_length_scale( root = 0 ):
 
     length_scale_df.to_pickle( join( root, 'VerticalLengthScales.p' ) )
 
+def print_vertical_length_scale_bl_integration( root = 0 ):
+    from pandas          import read_pickle
+    from scipy.integrate import simps
+    from os.path         import join
+
+    if not root:
+        root = '/home/carlos/Documents/PhD/Articles/Article_2/' + \
+                'Article2_Scripts/time_resolved_scripts/Results_v2'
+
+    length_scale_df = read_pickle( join( root, 'VerticalLengthScales.p' ) )
+
+    cases = length_scale_df.columns.levels[0]
+
+    for c in cases:
+        df_case = length_scale_df[ c ].dropna()
+
+        ls = simps(
+            df_case[ df_case.ybl < 1 ].ls.values,
+            df_case[ df_case.ybl < 1 ].y.values,
+        )
+        print c, round( ls, 1 )
 
 def get_Uc_phi_and_coherence(signal1_df, signal2_df):
     import pandas as pd
