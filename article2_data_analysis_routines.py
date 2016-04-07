@@ -1318,18 +1318,21 @@ def get_streamwise_coherence_and_correlation( hdf_name, overwrite = False ,
 
             case_x_2 = case_x_2.fillna( 0 )
 
-            xcorr = corrcoef( case_x_1.u, case_x_2.u )[1,0]
+            case_x_1[ 'u_prime' ] = case_x_1.u - case_x_1.u.mean()
+            case_x_2[ 'u_prime' ] = case_x_2.u - case_x_2.u.mean()
+
+            xcorr = corrcoef( case_x_1.u_prime, case_x_2.u_prime )[1,0]
 
             f, Pxy = csd(
-                case_x_1.u,
-                case_x_2.u,
+                case_x_1.u_prime,
+                case_x_2.u_prime,
                 fs      = fs,
                 nperseg = nperseg,
             )
 
             f, gamma = coherence(
-                case_x_2.u,
-                case_x_1.u,
+                case_x_2.u_prime,
+                case_x_1.u_prime,
                 fs      = fs,
                 nperseg = nperseg,
             )
@@ -1572,17 +1575,32 @@ def get_vertical_correlation( hdf_names , root = '', plot_individual = True,
                 #    plt.show()
 
                 f, gamma_loc = coherence(
-                    case_y_1.v, #.interpolate(method='spline', order=3, s=0.),
-                    case_y_2.v, #.interpolate(  method='spline', order=3, s=0.),
-                    fs = 10000,
+                    case_y_1.v - case_y_1.v.mean(), 
+                    case_y_2.v - case_y_2.v.mean(), 
+                    fs      = 10000,
                     nperseg = 2**7,
                 )
 
                 gamma.append( gamma_loc )
 
+                case_y_1[ 'v_prime' ] = \
+                        case_y_1.v.interpolate( 
+                            method='spline', order=3, s=0.
+                        ) - \
+                        case_y_1.v.interpolate( 
+                            method='spline', order=3, s=0.
+                        ).mean()
+                case_y_2[ 'v_prime' ] = \
+                        case_y_2.v.interpolate( 
+                            method='spline', order=3, s=0.
+                        ) - \
+                        case_y_2.v.interpolate( 
+                            method='spline', order=3, s=0.
+                        ).mean()
+
                 xcorr = corrcoef( 
-                    case_y_1.v.interpolate( method='spline', order=3, s=0.), 
-                    case_y_2.v.interpolate( method='spline', order=3, s=0.) 
+                    case_y_1.v_prime, 
+                    case_y_2.v_prime
                 )[1,0]
 
                 delta_y.append( 
