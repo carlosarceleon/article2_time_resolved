@@ -48,8 +48,7 @@ def return_bl_parameters( case, x_series ):
     def quad_func( x, a , b, c):
         return a*x**2 + b*x + c
 
-    bl_pickle_file = '/home/carlos/Documents/PhD/Articles/Article_3/' + \
-            'Scripts/time_resolved/BLData.p'
+    bl_pickle_file = 'BLData.p'
     bl_df = read_pickle( bl_pickle_file )
 
     if not case in bl_df.case.unique():
@@ -444,9 +443,9 @@ def plot_pickled_Uc( pickled_Uc_list , root = '', print_integration = False):
     fig, axes = plt.subplots(1, len( pickled_Uc_list ), 
                            sharex = True, sharey = True , figsize = (20, 8) )
 
-    fig_all, ax_all = plt.subplots(1,1,  figsize = (8, 6) )
+    fig_all, ax_all     = plt.subplots(1,1,  figsize = (8, 6) )
     fig_shear, ax_shear = plt.subplots(1,1,  figsize = (8, 6) )
-    fig_v_c, ax_v_c = plt.subplots(1,1,  figsize = (8, 6) )
+    fig_v_c, ax_v_c     = plt.subplots(1,1,  figsize = (8, 6) )
 
     for pickled_Uc, ax in zip( pickled_Uc_list, axes ):
 
@@ -516,7 +515,8 @@ def plot_pickled_Uc( pickled_Uc_list , root = '', print_integration = False):
         )
 
         if print_integration:
-            print Uc_df.case.unique(), int_Uc, Uc_df.y_real.min()
+            print Uc_df.case.unique(), int_Uc, Uc_df.y_real.min(), \
+                    Uc_df.y_real.max()
 
 
         # spline parameters
@@ -1321,7 +1321,13 @@ def get_streamwise_coherence_and_correlation( hdf_name, overwrite = False ,
             case_x_1[ 'u_prime' ] = case_x_1.u - case_x_1.u.mean()
             case_x_2[ 'u_prime' ] = case_x_2.u - case_x_2.u.mean()
 
-            xcorr = corrcoef( case_x_1.u_prime, case_x_2.u_prime )[1,0]
+            #xcorr = corrcoef( case_x_1.u_prime, case_x_2.u_prime )[1,0]
+
+            xcorr = case_x_1.u_prime.values.dot( case_x_2.u_prime.values ) / \
+                    sqrt( 
+                        case_x_1.u_prime.values.dot( case_x_1.u_prime.values )*\
+                        case_x_2.u_prime.values.dot( case_x_2.u_prime.values ) 
+                    )
 
             f, Pxy = csd(
                 case_x_1.u_prime,
@@ -1405,10 +1411,10 @@ def get_vertical_correlation( hdf_names , root = '', plot_individual = True,
     import seaborn as sns
     from matplotlib                      import rc
     from scipy.signal                    import coherence
-    from numpy                           import meshgrid, array, corrcoef, nan
+    from numpy                           import meshgrid, array, nan
     from numpy                           import sqrt
     from scipy.integrate                 import simps
-    from pandas                          import DataFrame, read_hdf
+    from pandas                          import DataFrame, read_hdf, concat
     from os.path                         import split, join, isfile
     from article2_time_resolved_routines import find_nearest
     from progressbar                     import ProgressBar,Percentage
@@ -1583,14 +1589,14 @@ def get_vertical_correlation( hdf_names , root = '', plot_individual = True,
 
                 gamma.append( gamma_loc )
 
-                case_y_1[ 'v_prime' ] = \
+                case_y_1[ 'v_prime1' ] = \
                         case_y_1.v.interpolate( 
                             method='spline', order=3, s=0.
                         ) - \
                         case_y_1.v.interpolate( 
                             method='spline', order=3, s=0.
                         ).mean()
-                case_y_2[ 'v_prime' ] = \
+                case_y_2[ 'v_prime2' ] = \
                         case_y_2.v.interpolate( 
                             method='spline', order=3, s=0.
                         ) - \
@@ -1598,10 +1604,21 @@ def get_vertical_correlation( hdf_names , root = '', plot_individual = True,
                             method='spline', order=3, s=0.
                         ).mean()
 
-                xcorr = corrcoef( 
-                    case_y_1.v_prime, 
-                    case_y_2.v_prime
-                )[1,0]
+                #xcorr = corrcoef( 
+                #    case_y_1.v_prime, 
+                #    case_y_2.v_prime
+                #)[1,0]
+
+                tmp_corr_df = concat( 
+                    [ case_y_1, case_y_2 ], axis = 1 
+                ).dropna()
+
+                xcorr = tmp_corr_df.v_prime1.dot( tmp_corr_df.v_prime2 ) / \
+                        sqrt( 
+                            tmp_corr_df.v_prime1.dot( tmp_corr_df.v_prime1 ) * \
+                            tmp_corr_df.v_prime2.dot( tmp_corr_df.v_prime2 ) 
+                        )
+
 
                 delta_y.append( 
                     case_y_2.y.unique()[0] - case_y_1.y.unique()[0] 
@@ -1614,8 +1631,9 @@ def get_vertical_correlation( hdf_names , root = '', plot_individual = True,
                 x1_real = case_y_1.x.unique()[0]
                 x2_real = case_y_2.x.unique()[0]
 
-                xi = sqrt( ( x1_real - x2_real )**2 + \
-                          ( y1_real - y2_real )**2 )
+                #xi = sqrt( ( x1_real - x2_real )**2 + \
+                #          ( y1_real - y2_real )**2 )
+                xi = y2_real - y1_real
 
                 corr_df = corr_df.append(
                     DataFrame( data = {
@@ -1865,7 +1883,7 @@ def get_streamwise_length_scale_and_ke( root = 0 ):
                     #and not "STE" in f
                    ]
 
-    fig, ax = plt.subplots(1, 2, figsize=(10,5), sharey = True )
+    fig, ax = plt.subplots(1, 1, figsize=(10,5), sharey = True )
 
     length_scale_df = DataFrame()
     for c in corr_pickles:
@@ -1914,24 +1932,16 @@ def get_streamwise_length_scale_and_ke( root = 0 ):
                 }, index = [0] ), ignore_index = True
             )
 
-            ax[0].plot(
+            ax.plot(
                 length_scale,
                 corr_df_y.y1_bl.unique()[0],
                 **plot_config
             )
 
-            ax[1].plot(
-                ke,
-                corr_df_y.y1_bl.unique()[0],
-                **plot_config
-            )
-
-    ax[0].set_ylim(0, 1)
-    ax[0].set_xlim(0, 8)
-    ax[0].set_xlabel( r'$\Lambda_{1|11}$ [m]$\times10^{-3}$' )
-    ax[0].set_ylabel( r'$y/\delta$' )
-    ax[1].set_xlabel( r'$k_e$ [1/m]' )
-    ax[1].set_xlim(100, 350)
+    ax.set_ylim(0, 1)
+    ax.set_xlim(0, 8)
+    ax.set_xlabel( r'$\Lambda_{1|11}$ [m]$\times10^{-3}$' )
+    ax.set_ylabel( r'$y/\delta$' )
     fig.savefig(
         join( root, "StreamwiseLengthScales.png" ),
         bbox_inches = 'tight' 
@@ -1995,7 +2005,9 @@ def get_vertical_length_scale( root = 0 ):
         }
 
 
-        ls = []
+        ls         = []
+        y_bl_loc   = []
+        y_real_loc = []
         for y in corr_df.height_ix1.unique():
 
             ax_Um.plot(
@@ -2005,6 +2017,19 @@ def get_vertical_length_scale( root = 0 ):
             )
 
             corr_df_y = corr_df[ corr_df.height_ix1 == y ]
+            corr_df_y = corr_df_y.sort_values( by = 'y2_bl' )
+
+            bl_thickness = ( corr_df_y.y1_real / corr_df_y.y1_bl ).mean()
+
+            corr_df_y = corr_df_y[ corr_df_y.xi >= -0.01 ]
+            
+            # Ignore y locations for which the xi does not extend to the length
+            # of the boundary layer thickness (less a bit of buffer)
+            if corr_df_y.xi.max() < bl_thickness * 0.8 or corr_df_y.empty:
+                continue
+            #print corr_df_y[ ['xi','xcorr','y2_bl', 'y1_bl'] ]
+
+            corr_df_y = corr_df_y[ corr_df_y.xi <= bl_thickness ]
 
             length_scale = simps(
                 corr_df_y.xcorr,
@@ -2012,6 +2037,12 @@ def get_vertical_length_scale( root = 0 ):
             )
 
             ls.append( length_scale )
+            y_real_loc.append( 
+                corr_df[ corr_df.height_ix1 == y ].y1_real.unique()[0] 
+            )
+            y_bl_loc.append( 
+                corr_df[ corr_df.height_ix1 == y ].y1_bl.unique()[0] 
+            )
 
             ax.plot(
                 length_scale,
@@ -2023,15 +2054,15 @@ def get_vertical_length_scale( root = 0 ):
             DataFrame( data = {
                 ( corr_df_y.case.unique()[0], 'ls' ) : ls,
                 ( corr_df_y.case.unique()[0], 'y' ) : \
-                corr_df.y1_real.unique(),
+                y_real_loc,
                 ( corr_df_y.case.unique()[0], 'ybl' ) : \
-                corr_df.y1_bl.unique(),
-            }, index = corr_df.y1_bl.unique() ) ], axis = 1
+                y_bl_loc,
+            }, index = range( len( y_bl_loc ) ) ) ], axis = 1
         )
 
     ax.set_ylim(0, 1)
-    ax.set_xlim(1, 4)
-    ax.set_xticks( [1, 2, 3] )
+    ax.set_xlim(1, 6)
+    ax.set_xticks( [1, 2, 3,4,5] )
     ax.set_xlabel( r'$\Lambda_{y|vv}$ [m]$\times10^{-3}$' , fontsize = fontsize)
     ax.tick_params(axis='both', which='major', labelsize=fontsize)
     ax.set_ylabel( r'$y/\delta$' , fontsize = fontsize)
@@ -2040,7 +2071,7 @@ def get_vertical_length_scale( root = 0 ):
             'Figures/measurement_locations_TE_m2.png'
 
     im = plt.imread( get_sample_data( schematic  ) )
-    newax = fig.add_axes([0.60, 0.5, 0.35, 0.35], anchor = 'SW', 
+    newax = fig.add_axes([0.60, 0.2, 0.35, 0.35], anchor = 'SW', 
                                  zorder=100)
     newax.imshow(im)
     newax.axis('off')

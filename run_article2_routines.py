@@ -295,8 +295,8 @@ def correlation_coherence_and_length_scale_analysis():
     root = '/home/carlos/Documents/PhD/Articles/Article_2/' + \
             'Article2_Scripts/time_resolved_scripts/Results_v2'
 
-    source_root = '/home/carlos/Documents/PhD/Articles/Article_3/' + \
-            'Scripts/time_resolved/ReservedData'
+    source_root = '/home/carlos/Documents/PhD/Articles/Article_2/' + \
+            'Article2_Scripts/time_resolved_scripts/ReservedData'
 
     def do_the_vertical_coherence_analysis( 
         hdfs , 
@@ -328,31 +328,32 @@ def correlation_coherence_and_length_scale_analysis():
     def do_the_streamwise_coherence_analysis( hdfs , overwrite = False ):
 
         #for hdf in hdfs:
-        #    dar.get_streamwise_coherence_and_correlation( 
-        #        join( source_root, hdf ), 
-        #        overwrite = overwrite 
-        #    )
+            #dar.get_streamwise_coherence_and_correlation( 
+            #    join( source_root, hdf ), 
+            #    overwrite = overwrite 
+            #)
 
-        #    dar.plot_streamwise_correlation_from_pickle( 
-        #        'StreamwiseCorrelation_Values_' + hdf.replace( '.hdf5', '.p' )
-        #    )
+            #dar.plot_streamwise_correlation_from_pickle( 
+            #    'StreamwiseCorrelation_Values_' + hdf.replace( '.hdf5', '.p' )
+            #)
 
-        #    dar.do_the_streamwise_coherence_analysis(
-        #        'StreamwiseCoherence_Values_' + hdf.replace( '.hdf5', '.p' ),
-        #        overwrite = overwrite
-        #    )
+            #dar.do_the_streamwise_coherence_analysis(
+            #    'StreamwiseCoherence_Values_' + hdf.replace( '.hdf5', '.p' ),
+            #    overwrite = overwrite
+            #)
 
-        #dar.get_streamwise_length_scale_and_ke()
+        dar.get_streamwise_length_scale_and_ke()
 
         dar.plot_pickled_Uc( 
-            [ 'Uc_data_Values_' + f.replace('.hdf5','.p') for f in hdfs ]
+            [ 'Uc_data_Values_' + f.replace('.hdf5','.p') for f in hdfs ],
+            print_integration = True
         )
         
-        #dar.plot_wavenumber_spectra( 
-        #    [ join( source_root, h ) for h in hdfs ], 
-        #    var = 'u'
-        #)
-        #dar.plot_phi()
+        dar.plot_wavenumber_spectra( 
+            [ join( source_root, h ) for h in hdfs ], 
+            var = 'u'
+        )
+        dar.plot_phi()
 
     hdf_list_to_process = [
         'STE_a0_p0_U20_z00_tr.hdf5',
@@ -385,4 +386,4 @@ root = join('/home/carlos/Documents/PhD/Articles/Article_2',
 #get_relevant_wall_normal_data_from_pandas_hdf(exceptions = ['z05','STE','z00'])
 #do_the_time_resolved_analysis()
 correlation_coherence_and_length_scale_analysis()
-publish.publish()
+#publish.publish()
