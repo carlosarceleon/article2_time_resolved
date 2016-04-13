@@ -144,7 +144,7 @@ def do_the_time_resolved_analysis():
 
         for y in df.near_y_delta.unique():
 
-            if round( y, 2 ) in [0.1, 0.3, 0.6, 0.9]:
+            if round( y, 2 ) in [0.9]:#, 0.3, 0.6, 0.9]:
 
                 df_y_cases = df[ df.near_y_delta == y ]
 
@@ -342,18 +342,18 @@ def correlation_coherence_and_length_scale_analysis():
             #    overwrite = overwrite
             #)
 
-        dar.get_streamwise_length_scale_and_ke()
+        #dar.get_streamwise_length_scale_and_ke()
 
-        dar.plot_pickled_Uc( 
-            [ 'Uc_data_Values_' + f.replace('.hdf5','.p') for f in hdfs ],
-            print_integration = True
-        )
+        #dar.plot_pickled_Uc( 
+        #    [ 'Uc_data_Values_' + f.replace('.hdf5','.p') for f in hdfs ],
+        #    print_integration = True
+        #)
         
         dar.plot_wavenumber_spectra( 
             [ join( source_root, h ) for h in hdfs ], 
             var = 'u'
         )
-        dar.plot_phi()
+        #dar.plot_phi()
 
     hdf_list_to_process = [
         'STE_a0_p0_U20_z00_tr.hdf5',
@@ -386,4 +386,4 @@ root = join('/home/carlos/Documents/PhD/Articles/Article_2',
 #get_relevant_wall_normal_data_from_pandas_hdf(exceptions = ['z05','STE','z00'])
 #do_the_time_resolved_analysis()
 correlation_coherence_and_length_scale_analysis()
-#publish.publish()
+publish.publish()

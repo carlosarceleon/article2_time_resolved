@@ -1,3 +1,59 @@
+def roman_to_int(input):
+   """
+   Convert a roman numeral to an integer.
+   
+   >>> r = range(1, 4000)
+   >>> nums = [int_to_roman(i) for i in r]
+   >>> ints = [roman_to_int(n) for n in nums]
+   >>> print r == ints
+   1
+
+   >>> roman_to_int('VVVIV')
+   Traceback (most recent call last):
+    ...
+   ValueError: input is not a valid roman numeral: VVVIV
+   >>> roman_to_int(1)
+   Traceback (most recent call last):
+    ...
+   TypeError: expected string, got <type 'int'>
+   >>> roman_to_int('a')
+   Traceback (most recent call last):
+    ...
+   ValueError: input is not a valid roman numeral: A
+   >>> roman_to_int('IL')
+   Traceback (most recent call last):
+    ...
+   ValueError: input is not a valid roman numeral: IL
+   """
+   if type(input) != type(""):
+      raise TypeError, "expected string, got %s" % type(input)
+   input = input.upper()
+   nums = ['M', 'D', 'C', 'L', 'X', 'V', 'I']
+   ints = [1000, 500, 100, 50,  10,  5,   1]
+   places = []
+   for c in input:
+      if not c in nums:
+         raise ValueError, "input is not a valid roman numeral: %s" % input
+   for i in range(len(input)):
+      c = input[i]
+      value = ints[nums.index(c)]
+      # If the next place holds a larger number, this value is negative.
+      try:
+         nextvalue = ints[nums.index(input[i +1])]
+         if nextvalue > value:
+            value *= -1
+      except IndexError:
+         # there is no next place.
+         pass
+      places.append(value)
+   sum = 0
+   for n in places: sum += n
+   # Easiest test for validity...
+   if int_to_roman(sum) == input:
+      return sum
+   else:
+      raise ValueError, 'input is not a valid roman numeral: %s' % input
+
 def get_bl_parameters(
     df, 
     bl_file = 'Boundary_layer_information.csv'
@@ -149,8 +205,9 @@ def plot_wavenumber_spectra( hdf_cases , root = '', var = 'v'):
     from article2_time_resolved_routines import find_nearest
     from os.path                         import split, join
     from numpy                           import log10, arange, array, nan
+    from numpy                           import append
     from matplotlib                      import rc
-    from matplotlib.cbook import get_sample_data
+    from matplotlib.cbook                import get_sample_data
 
     schematic = '/home/carlos/Documents/PhD/Articles/Article_2/'+\
             'Figures/measurement_locations_TE_m2_wo05.png'
@@ -342,8 +399,8 @@ def plot_wavenumber_spectra( hdf_cases , root = '', var = 'v'):
             axes_f[ix][0].set_yticks( arange( -20, 5, 5 ) )
             axes_f[ix][1].set_yticks( arange( -20, 0, 5 ) )
             #axes[ix][2].set_yticks( arange( -20, 0, 5 ) )
-            axes_f[ix][0].set_xticks( arange( 1, 6, 1) )
-            axes_f[ix][1].set_xticks( arange( 1, 6, 1) )
+            axes_f[ix][0].set_xticks( append( [0.2], arange( 1, 6, 1 ) ) )
+            axes_f[ix][1].set_xticks( append( [0.2], arange( 1, 6, 1 ) ) )
             axes_f[ix][0].set_xticklabels( [0.2,1,2,3,4,5] )
             axes_f[ix][1].set_xticklabels( [0.2,1,2,3,4,5] )
             #axes[ix][2].set_xticks( arange( 100, 350, 100 ) )
@@ -2256,10 +2313,11 @@ def get_color_and_marker(case_name):
                         
 def do_the_reynolds_stress_quadrant_analysis(cases_df,y_delta, plot_name = ''):
 
-    from matplotlib import rc
     import seaborn as sns
     import matplotlib.pyplot as plt
-    from numpy import linspace, mean
+    from matplotlib import rc
+    from numpy      import linspace, abs,arange
+    from matplotlib.ticker import AutoMinorLocator
 
     rc('text',usetex=True)
     rc('font',weight='normal')
@@ -2272,16 +2330,23 @@ def do_the_reynolds_stress_quadrant_analysis(cases_df,y_delta, plot_name = ''):
 
     fig_uv,axes_uv = plt.subplots(
         1,len(cases), 
-        figsize = (figsize[0]*len(cases), figsize[1]), 
-        sharex=True,
-        sharey=True, 
+        figsize = (figsize[0]*len(cases), figsize[1]),
+        sharex  = True,
+        sharey  = True,
+    )
+
+    fig_hist, axes_hist = plt.subplots(
+        1,len(cases), 
+        figsize = (figsize[0]*len(cases), figsize[1]/2.),
+        sharex  = True,
+        sharey  = True,
     )
 
     if not len(cases)>2:
         return 0
         
-    for case_file, case_i, ax_uv in zip(cases, range(len(cases)), 
-                                     axes_uv):
+    for case_file, case_i, ax_uv, ax_hist in zip(cases, range(len(cases)), 
+                                     axes_uv, axes_hist):
 
         case = cases_df[cases_df.file == case_file]\
                 .sort_values( by = ['time_step'] )
@@ -2307,49 +2372,71 @@ def do_the_reynolds_stress_quadrant_analysis(cases_df,y_delta, plot_name = ''):
                              shade_lowers = False,
                              gridsize     = 80,
                              zorder = 120, 
-                             alpha = 0.8,
+                             alpha = 1.0,
                    )
         
-        ax_uv.plot(
-            case['uprime'].values[::100],
-            case['vprime'].values[::100],
-            ls              = '',
-            marker          = marker,
-            markeredgewidth = markeredgewidth,
-            markerfacecolor = markerfacecolor,
-            markeredgecolor = 'k',
-            markersize      = markersize*1.8,
-            mew             = mew,
-            alpha           = 0.4,
-            zorder = 100
-        )
-
         t = linspace( -0.3, 0.3, 100 )
 
-        up = 6 * -mean(case['uprime']*case['vprime'])/t
-        ax_uv.plot( t, up , ls = '-.', c = 'k', lw = 3 , zorder = 500)
-        ax_uv.plot( t, -up , ls = '-.', c = 'k', lw = 3 , zorder = 500)
+        mean_val = ( case['uprime'] * case['vprime'] ).mean()
+        up = 6 * -mean_val / t
+
+        ax_uv.plot( t, up,  ls = '-.', c = 'k', lw = 3, zorder = 500)
+        ax_uv.plot( t, -up, ls = '-.', c = 'k', lw = 3, zorder = 500)
+
+        case[ 'product_uv' ] = abs( case.uprime.values * case.vprime.values )
+
+        meaningfull_events = case[
+            case.product_uv > 6 * -mean_val
+        ].copy()
+
+        meaningfull_events[ 'Q' ] = 0
+
+        meaningfull_events.loc[
+            ( meaningfull_events.vprime > 0 ) & \
+            ( meaningfull_events.uprime > 0 ) ,
+            'Q' ] = "I"
+        meaningfull_events.loc[
+            ( meaningfull_events.vprime < 0 ) & \
+            ( meaningfull_events.uprime > 0 ) ,
+            'Q' ] = "IV"
+        meaningfull_events.loc[
+            ( meaningfull_events.vprime > 0 ) & \
+            ( meaningfull_events.uprime < 0 ) ,
+            'Q' ] = "II"
+        meaningfull_events.loc[
+            ( meaningfull_events.vprime < 0 ) & \
+            ( meaningfull_events.uprime < 0 ) ,
+            'Q' ] = "III"
+
+        counts = meaningfull_events['Q'].value_counts().sort_index()
+        counts = counts / len( case.uprime.values ) * 100.
+
+        counts.plot(
+            kind  = 'bar',
+            ax    = ax_hist,
+            color = color,
+        )
 
         ax_uv.fill_between( t, 
                            -up,
                            up,
-                           facecolor='w', 
-                           alpha=1.0,
-                           zorder = 80
+                           facecolor = 'w',
+                           alpha     = 0.4,
+                           zorder    = 80
                           )
 
 
         ax_uv.plot(
-            case['uprime'].values[::10],
-            case['vprime'].values[::10],
+            meaningfull_events.uprime,
+            meaningfull_events.vprime,
             ls              = '',
             marker          = marker,
             markeredgewidth = markeredgewidth,
             markerfacecolor = markerfacecolor,
-            markeredgecolor = 'k',
+            markeredgecolor = color,
             markersize      = markersize*1.8,
             mew             = mew,
-            alpha           = 0.3,
+            alpha           = 0.2,
             zorder = 1
         )
 
@@ -2367,24 +2454,46 @@ def do_the_reynolds_stress_quadrant_analysis(cases_df,y_delta, plot_name = ''):
         ax_uv.axhline( 0, ls = '--', lw=3 , c = 'k', zorder = 150)
         ax_uv.axvline( 0, ls = '--', lw=3 , c = 'k', zorder = 150)
 
+        ax_hist.set_ylim( 0, 6 )
+        ax_hist.set_yticks( arange(0, 7, 1.0) , minor = False)
+        minor_locator = AutoMinorLocator(2)
+        ax_hist.yaxis.set_minor_locator(minor_locator)
+        ax_hist.set_yticklabels( ['0 \%', '', '2 \%', '', '4 \%', '', '6 \%'] )
+
         if y_delta == 0.1:
             ax_uv.set_xlabel(r"$u'/u_e$")
             ax_uv.grid(False)
 
+    if round(y_delta,1) == 0.9:
+        axes_hist[0].text( 0.5, 1.15, r'$x/2h = 0$', ha = 'center', 
+                          va = 'center', transform = axes_hist[0].transAxes )
+        axes_hist[1].text( 0.5, 1.15, r'$x/2h = 0.5$', ha = 'center', 
+                          va = 'center', transform = axes_hist[1].transAxes )
+        axes_hist[2].text( 0.5, 1.15, r'$x/2h = 1$', ha = 'center', 
+                          va = 'center', transform = axes_hist[2].transAxes )
+
     axes_uv[0].set_ylabel(r"$v'/u_e$")
+    axes_hist[0].set_ylabel(r"$> -6\overline{u'v'}$")
 
-    t = axes_uv[0].text( -0.22, 0.15, 
-                        r'$y/\delta_{{99}} = {0}$'.format(y_delta),
+    t = axes_hist[-1].text( 1.10, 0.5, 
+                         r'$y/\delta_{{99}} = {0}$'.format(y_delta),
+                         zorder = 300, ha = 'center', va = 'center', 
+                         rotation = 90,transform=axes_hist[-1].transAxes)
+    t.set_bbox(dict(color='white', alpha=0.9, edgecolor='white', zorder = 300))
+
+    t = axes_uv[-1].text( 0.30, 0.0, 
+                         r'$y/\delta_{{99}} = {0}$'.format(y_delta),
+                         zorder = 300, ha = 'center', va = 'center', 
+                         rotation = 90)
+    t.set_bbox(dict(color='white', alpha=0.9, edgecolor='white', zorder = 300))
+
+    t = axes_uv[0].text( -0.22, 0.20, 
+                        r'II'.format(y_delta), va = 'center',
                        zorder = 300)
     t.set_bbox(dict(color='white', alpha=0.9, edgecolor='white', zorder = 300))
 
-    t = axes_uv[-1].text( -0.22, 0.15, 
-                        r'II'.format(y_delta),
-                       zorder = 300)
-    t.set_bbox(dict(color='white', alpha=0.9, edgecolor='white', zorder = 300))
-
-    t = axes_uv[-1].text( 0.22, -0.18, 
-                        r'IV'.format(y_delta), ha='right',
+    t = axes_uv[0].text( 0.22, -0.20, 
+                        r'IV'.format(y_delta), ha='right', va = 'center',
                        zorder = 300)
     t.set_bbox(dict(color='white', alpha=0.9, edgecolor='white', zorder = 300))
 
@@ -2393,6 +2502,11 @@ def do_the_reynolds_stress_quadrant_analysis(cases_df,y_delta, plot_name = ''):
 
     fig_uv.savefig( 
         plot_name.replace('.','_').replace('_png','_uv.png'),
+        bbox_inches = 'tight'
+    )
+    hist_plot_name = plot_name.replace( '.png', "_MeaningfullOccurrences.png" )
+    fig_hist.savefig( 
+        hist_plot_name.replace('.','_').replace('_png','_uv.png'),
         bbox_inches = 'tight'
     )
     plt.cla()
