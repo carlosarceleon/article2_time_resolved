@@ -97,14 +97,15 @@ def get_bl_parameters(
 
     return bl_case_data
 
-def return_bl_parameters( case, x_series ):
+def return_bl_parameters( case, x_series, bl_pickle_file = '' ):
     from pandas import read_pickle, DataFrame
     from scipy.optimize import curve_fit
 
     def quad_func( x, a , b, c):
         return a*x**2 + b*x + c
 
-    bl_pickle_file = 'BLData.p'
+    if not bl_pickle_file:
+        bl_pickle_file = 'BLData.p'
     bl_df = read_pickle( bl_pickle_file )
 
     if not case in bl_df.case.unique():
@@ -222,10 +223,14 @@ def plot_wavenumber_spectra( hdf_cases , root = '', var = 'v'):
 
     y_locations = array( [ 0.2, 0.4, 0.6, 0.8 ] )
 
-    fig_f, axes_f = plt.subplots( len( y_locations ) , 2 , 
-                             figsize = ( 20, 20 ), sharex = True, sharey = True)
+    f_exceptions = array( [ 0.4, 0.8 ] )
+
+    fig_f, axes_f = plt.subplots( len( y_locations ) - len( f_exceptions ) , 
+                                 2 , 
+                                 figsize = ( 20, 15 ), 
+                                 sharex = True, sharey = True)
     fig_k, axes_k = plt.subplots( 2 , 2 , 
-                             figsize = ( 14, 11 ), sharex = True, sharey = True)
+                             figsize = ( 20, 15 ), sharex = True, sharey = True)
 
     for hdf_name in [ join( root, f ) for f in hdf_cases if not 'z05' in f]:
 
@@ -275,6 +280,7 @@ def plot_wavenumber_spectra( hdf_cases , root = '', var = 'v'):
             'lw'              : 4
         }
 
+        f_ix = 0
         for y_req, ix, ax_k in zip( 
             y_locations[::-1], range( len( y_locations ) ) , axes_k.ravel()
         ):
@@ -342,16 +348,17 @@ def plot_wavenumber_spectra( hdf_cases , root = '', var = 'v'):
 
             k = freq / Uc
 
-            axes_f[ix][0].plot(
-                freq[:-1]/1000.,
-                10 * log10( Pxx_u )[:-1],
-                **plot_config
-            )
-            axes_f[ix][1].plot(
-                freq[:-1]/1000.,
-                10 * log10( Pxx_v )[:-1],
-                **plot_config
-            )
+            if not y_req in f_exceptions:
+                axes_f[f_ix][0].plot(
+                    freq[:-1]/1000.,
+                    10 * log10( Pxx_u )[:-1],
+                    **plot_config
+                )
+                axes_f[f_ix][1].plot(
+                    freq[:-1]/1000.,
+                    10 * log10( Pxx_v )[:-1],
+                    **plot_config
+                )
 
             ax_k.plot(
                 k[:-1]/100.,
@@ -363,58 +370,60 @@ def plot_wavenumber_spectra( hdf_cases , root = '', var = 'v'):
             kolmogorov_law_curve[1] = \
                     kolmogorov_law_curve[1] + 3
 
-            axes_f[ix][0].plot( 
-                kolmogorov_law_curve[0] , 
-                kolmogorov_law_curve[1] - 7, 
-                '-',
-                color = 'k' ,
-                lw    = 4,
-            )
-            axes_f[ix][1].plot( 
-                kolmogorov_law_curve[0] , 
-                kolmogorov_law_curve[1] - 10, 
-                '-',
-                color = 'k' ,
-                lw    = 4,
-            )
+            if not y_req in f_exceptions:
+                axes_f[f_ix][0].plot( 
+                    kolmogorov_law_curve[0] , 
+                    kolmogorov_law_curve[1] - 7, 
+                    '-',
+                    color = 'k' ,
+                    lw    = 4,
+                )
+                axes_f[f_ix][1].plot( 
+                    kolmogorov_law_curve[0] , 
+                    kolmogorov_law_curve[1] - 10, 
+                    '-',
+                    color = 'k' ,
+                    lw    = 4,
+                )
 
-            axes_f[ix][0].set_xlim( 0.2, 5   )
-            axes_f[ix][1].set_xlim( 0.2, 5   )
+                axes_f[f_ix][0].set_xlim( 0.2, 5   )
+                axes_f[f_ix][1].set_xlim( 0.2, 5   )
+                axes_f[f_ix][0].set_xscale('log')
+                axes_f[f_ix][1].set_xscale('log')
+                axes_f[f_ix][0].tick_params(axis='both', which='major', 
+                                            labelsize=fontsize)
+                axes_f[f_ix][1].tick_params(axis='both', which='major', 
+                                          labelsize=fontsize)
+                #axes_ff_[ix][0].set_ylim( -20, 0 )
+                #axes_ff_[ix][1].set_ylim( -20, 0 )
+                axes_f[f_ix][0].set_yticks( arange( -20, 5, 5 ) )
+                axes_f[f_ix][1].set_yticks( arange( -20, 0, 5 ) )
+                #axes[if_x][2].set_yticks( arange( -20, 0, 5 ) )
+                axes_f[f_ix][0].set_xticks( append( [0.2], arange( 1, 6, 1 ) ) )
+                axes_f[f_ix][1].set_xticks( append( [0.2], arange( 1, 6, 1 ) ) )
+                axes_f[f_ix][0].set_xticklabels( [0.2,1,2,3,4,5] )
+                axes_f[f_ix][1].set_xticklabels( [0.2,1,2,3,4,5] )
+                #axes[if_x][2].set_xticks( arange( 100, 350, 100 ) )
+                #axes[if_x][2].set_xticks( arange( 100, 350, 100 ) )
+                axes_f[f_ix][1].text( 1.8, -5, r'$y/\delta = {0:.2f}$'.format(y_req),
+                                 ha = 'left'
+                                )
+                axes_f[f_ix][0].text( 1.300, -5, r'$10\log_{10}\left(f^{-5/3}\right)$',
+                                 ha = 'left'
+                                )
+                axes_f[f_ix][1].text( 1.300, -8, r'$10\log_{10}\left(f^{-5/3}\right)$',
+                                 ha = 'left'
+                                )
+                f_ix += 1
+
             ax_k.set_xlim( 0.1,   3.50 )
             ax_k.set_xlim( 0.1,   3.50 )
-            axes_f[ix][0].set_xscale('log')
-            axes_f[ix][1].set_xscale('log')
             ax_k.set_xscale('log')
             ax_k.set_xscale('log')
-            axes_f[ix][0].tick_params(axis='both', which='major', 
-                                      labelsize=fontsize)
-            axes_f[ix][1].tick_params(axis='both', which='major', 
-                                      labelsize=fontsize)
             ax_k.tick_params(axis='both', which='major', 
                                       labelsize=fontsize)
             ax_k.tick_params(axis='both', which='major', 
                                       labelsize=fontsize)
-            #axes_f[ix][0].set_ylim( -20, 0 )
-            #axes_f[ix][1].set_ylim( -20, 0 )
-            axes_f[ix][0].set_yticks( arange( -20, 5, 5 ) )
-            axes_f[ix][1].set_yticks( arange( -20, 0, 5 ) )
-            #axes[ix][2].set_yticks( arange( -20, 0, 5 ) )
-            axes_f[ix][0].set_xticks( append( [0.2], arange( 1, 6, 1 ) ) )
-            axes_f[ix][1].set_xticks( append( [0.2], arange( 1, 6, 1 ) ) )
-            axes_f[ix][0].set_xticklabels( [0.2,1,2,3,4,5] )
-            axes_f[ix][1].set_xticklabels( [0.2,1,2,3,4,5] )
-            #axes[ix][2].set_xticks( arange( 100, 350, 100 ) )
-            #axes[ix][2].set_xticks( arange( 100, 350, 100 ) )
-
-            axes_f[ix][1].text( 1.8, -5, r'$y/\delta = {0:.2f}$'.format(y_req),
-                             ha = 'left'
-                            )
-            axes_f[ix][0].text( 1.800, -6, r'$f^{-5/3}$',
-                             ha = 'left'
-                            )
-            axes_f[ix][1].text( 1.800, -10, r'$f^{-5/3}$',
-                             ha = 'left'
-                            )
 
             ax_k.text( 0.11, 9, r'$y/\delta = {0:.2f}$'.format(y_req),
                              ha = 'left'
@@ -446,12 +455,12 @@ def plot_wavenumber_spectra( hdf_cases , root = '', var = 'v'):
                       fontsize = fontsize )
 
     im = plt.imread( get_sample_data( schematic  ) )
-    newax = fig_f.add_axes([0.08, 0.09, 0.14, 0.14], 
+    newax = fig_f.add_axes([0.11, 0.15, 0.18, 0.18], 
                              anchor = 'SW', zorder=100)
     newax.imshow(im)
     newax.axis('off')
 
-    newax = fig_k.add_axes([0.77, 0.18, 0.16, 0.16], 
+    newax = fig_k.add_axes([0.77, 0.14, 0.18, 0.18], 
                              anchor = 'SE', zorder=100)
     newax.imshow(im)
     newax.axis('off')
